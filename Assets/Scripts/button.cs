@@ -78,24 +78,24 @@ public class ButtonSelect : MonoBehaviour
 	Toggle t = gameObject.GetComponent<Toggle>();
         bool show = !t.isOn;
 	t.isOn = show;
-        GameObject camera = GameObject.Find("OVRCameraRig");
-	camera.GetComponent<OVRPassthroughLayer>().enabled = show;
       }
       if (button_name == "Show table")
       {
       	Toggle t = gameObject.GetComponent<Toggle>();
         bool show = !t.isOn;
 	t.isOn = show;
-	model.SetActive(show);  // model is the Table GameObject
       }
       if (button_name == "Open new files")
       {
        	Toggle t = gameObject.GetComponent<Toggle>();
         bool open = !t.isOn;
 	t.isOn = open;
-	ui.open_new = open;
-	if (open)
-	  load_models.record_files();
+      }
+      if (button_name == "Receive files")
+      {
+       	Toggle t = gameObject.GetComponent<Toggle>();
+        bool recv = !t.isOn;
+	t.isOn = recv;
       }
     }
 }

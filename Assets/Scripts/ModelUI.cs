@@ -1,5 +1,6 @@
 using UnityEngine;
 using UnityEngine.InputSystem;	   // use InputAction
+using UnityEngine.UI;		   // use Toggle
 using System;			   // use DateTime
 using System.IO;		   // use Path
 using System.Threading.Tasks;  	   // Use Task
@@ -13,8 +14,12 @@ public class ModelUI : MonoBehaviour
     public GameObject options;
     public float check_for_files_interval = 5.0f;	// seconds
     public bool open_new = false;
+    public Toggle open_new_toggle;
     public LoadModels load_models;
-    public Wands wands;			// Used to position UI panel on button click.
+    public FileReceiver file_receiver;
+    public OVRPassthroughLayer pass_through;
+    public GameObject table;
+    public Wands wands;				// Used to position UI panel on button click.
     
     void Start()
     {
@@ -46,7 +51,7 @@ public class ModelUI : MonoBehaviour
           GameObject.Destroy(child.gameObject);
 
       // Make new Hide, Show, Close buttons.
-      float y = 0.08f;
+      float y = 0.10f;	// meters
       foreach (Model model in load_models.open_models.models)
 	{
 	  GameObject row = Instantiate(hide_show_close_prefab,
@@ -106,6 +111,18 @@ public class ModelUI : MonoBehaviour
     look.y = 0;
     transform.rotation = Quaternion.FromToRotation(new Vector3(0,0,1), look);
   }
+
+  public void pass_through_toggled(bool pass)
+  {
+    pass_through.enabled = pass;
+  }
+  
+  public void open_new_toggled(bool open)
+  {
+    open_new = open;
+    if (open)
+      load_models.record_files();
+  }
   
   async void open_new_files()
   {
@@ -115,6 +132,22 @@ public class ModelUI : MonoBehaviour
     int num_opened = await load_models.open_new_files();
     if (num_opened > 0 && gameObject.activeSelf)
       update_ui_controls();
+  }
+
+  public void receive_files(bool receive)
+  {
+    if (receive)
+    {
+	open_new_toggle.isOn = true;
+        file_receiver.StartListening();
+    }
+    else
+        file_receiver.StopListening();
+  }
+
+  public void show_table(bool show)
+  {
+    table.SetActive(show);
   }
 }
 
