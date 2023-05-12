@@ -108,12 +108,15 @@ public class LoadModels : MonoBehaviour
 	mesh.vertices = vertices;
 	mesh.RecalculateBounds();
     }
-    
-    model_object.transform.localPosition *= scale;
-    foreach (Transform child_transform in model_object.transform)
-    {
-      child_transform.localPosition *= scale;
-    }
+
+    scale_positions(model_object.transform, scale);
+  }
+
+  void scale_positions(Transform transform, float scale)
+  {
+    transform.localPosition *= scale;
+    foreach (Transform child_transform in transform)
+      scale_positions(child_transform, scale);
   }
 
   Vector3 next_model_center()
