@@ -49,6 +49,15 @@
                     "processors": "",
                     "interactions": "",
                     "initialStateCheck": false
+                },
+                {
+                    "name": "AlignMeetingWands",
+                    "type": "PassThrough",
+                    "id": "b649af7f-a222-4bd2-b3ab-0b1ea84f64af",
+                    "expectedControlType": "",
+                    "processors": "",
+                    "interactions": "",
+                    "initialStateCheck": false
                 }
             ],
             "bindings": [
@@ -148,6 +157,17 @@
                     "processors": "",
                     "groups": "XR",
                     "action": "ShowOrHideUI",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                },
+                {
+                    "name": "",
+                    "id": "275b55f1-3c7f-4d38-982d-1717c58e9ce5",
+                    "path": "<OculusTouchController>/secondaryButton",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "XR",
+                    "action": "AlignMeetingWands",
                     "isComposite": false,
                     "isPartOfComposite": false
                 }

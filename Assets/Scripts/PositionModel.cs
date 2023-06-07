@@ -5,8 +5,6 @@ using UnityEngine.InputSystem.XR; 		// use PoseState
 using static ModelUtilities;			// use closest_child()
 using TMPro;  // Use TextMeshProUGUI
 
-// TODO: Need a mechanism to hide and show models.
-
 public class PositionModel : MonoBehaviour
 {
     public GameObject models;			// Children are movable models.

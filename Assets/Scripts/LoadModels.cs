@@ -50,13 +50,18 @@ public class LoadModels : MonoBehaviour
   async public Task<Model> load_gltf_file(string path)
   {
     var gltfImport = new GltfImport();
-    await gltfImport.Load(path);
+    bool success = await gltfImport.Load(path);
+    if (!success)
+    {
+      Debug.Log("gltfImport.Load() failed on file " + path);
+      return null;
+    }
 
     string filename = Path.GetFileName(path);
     GameObject model_object = new GameObject(filename);
     model_object.transform.parent = gameObject.transform;
     var instantiator = new GameObjectInstantiator(gltfImport, model_object.transform);
-    var success = await gltfImport.InstantiateSceneAsync(instantiator);
+    success = await gltfImport.InstantiateSceneAsync(instantiator);
 
     if (success) {
       Debug.Log("Loaded " + path);
@@ -65,6 +70,31 @@ public class LoadModels : MonoBehaviour
       return m;
     } else {
       Debug.Log("gltfImport failed instantiating " + path);
+    }
+    return null;
+  }
+
+  async public Task<Model> load_gltf_bytes(byte[] gltf_data, string model_name)
+  {
+    var gltfImport = new GltfImport();
+    bool success = await gltfImport.Load(gltf_data);
+    if (!success)
+    {
+      Debug.Log("gltfImport.Load() failed on byte array of length " + gltf_data.Length + " " + model_name);
+      return null;
+    }
+
+    GameObject model_object = new GameObject(model_name);
+    model_object.transform.parent = gameObject.transform;
+    var instantiator = new GameObjectInstantiator(gltfImport, model_object.transform);
+    success = await gltfImport.InstantiateSceneAsync(instantiator);
+
+    if (success) {
+      center_and_scale_model(model_object);
+      Model m = open_models.add(model_name, model_object);
+      return m;
+    } else {
+      Debug.Log("gltfImport failed instantiating " + model_name);
     }
     return null;
   }

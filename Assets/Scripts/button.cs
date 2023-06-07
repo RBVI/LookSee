@@ -73,29 +73,13 @@ public class ButtonSelect : MonoBehaviour
       {
         await load_models.load_gltf_file(file_path);
       }
-      if (button_name == "Show room")
+
+      // Toggle any clicked toggle button.
+      Toggle t = gameObject.GetComponent<Toggle>();
+      if (t != null)
       {
-	Toggle t = gameObject.GetComponent<Toggle>();
-        bool show = !t.isOn;
-	t.isOn = show;
-      }
-      if (button_name == "Show table")
-      {
-      	Toggle t = gameObject.GetComponent<Toggle>();
-        bool show = !t.isOn;
-	t.isOn = show;
-      }
-      if (button_name == "Open new files")
-      {
-       	Toggle t = gameObject.GetComponent<Toggle>();
-        bool open = !t.isOn;
-	t.isOn = open;
-      }
-      if (button_name == "Receive files")
-      {
-       	Toggle t = gameObject.GetComponent<Toggle>();
-        bool recv = !t.isOn;
-	t.isOn = recv;
+        bool enable = !t.isOn;
+        t.isOn = enable;
       }
     }
 }

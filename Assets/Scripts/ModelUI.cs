@@ -17,6 +17,8 @@ public class ModelUI : MonoBehaviour
     public Toggle open_new_toggle;
     public LoadModels load_models;
     public FileReceiver file_receiver;
+    public Meeting meeting;
+    public GameObject start_meeting_toggle, join_meeting_toggle, align_meeting_toggle;
     public OVRPassthroughLayer pass_through;
     public GameObject table;
     public Wands wands;				// Used to position UI panel on button click.
@@ -70,7 +72,8 @@ public class ModelUI : MonoBehaviour
 
       // Make new Open buttons.
       string[] files = load_models.gltf_file_paths();
-      y = -0.08f;
+//      y = -0.08f;
+      y = -0.14f;
       int h = (files.Length + 1) / 2, count = 0;
       foreach (string path in files)
 	{
@@ -143,6 +146,30 @@ public class ModelUI : MonoBehaviour
     }
     else
         file_receiver.StopListening();
+  }
+
+  public void start_meeting(bool start)
+  {
+    if (start)
+        meeting.start_hosting();
+    else
+        meeting.stop_hosting();
+    join_meeting_toggle.SetActive(!start);
+    align_meeting_toggle.SetActive(start);
+  }
+
+  public void join_meeting(bool join)
+  {
+    if (join)
+        meeting.join_meeting("169.230.21.238");        // TODO: Allow entering the IP address.
+    else
+        meeting.leave_meeting();
+    start_meeting_toggle.SetActive(!join);
+  }
+
+  public void align_meeting(bool align)
+  {
+    meeting.enable_hand_alignment(align);
   }
 
   public void show_table(bool show)
