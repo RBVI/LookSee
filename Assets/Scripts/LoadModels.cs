@@ -32,7 +32,8 @@ public class LoadModels : MonoBehaviour
     if (files.Length == 0)
     {
       example_model.SetActive(true);
-      open_models.add("SARS-CoV-2 Spike", example_model);
+      Model model = new Model("SARS-CoV-2 Spike", example_model);
+      open_models.add(model);
     }
 
 //    foreach (string path in files)
@@ -66,7 +67,8 @@ public class LoadModels : MonoBehaviour
     if (success) {
       Debug.Log("Loaded " + path);
       center_and_scale_model(model_object);
-      Model m = open_models.add(path, model_object);
+      Model m = new Model(path, model_object);
+      open_models.add(m);
       return m;
     } else {
       Debug.Log("gltfImport failed instantiating " + path);
@@ -91,7 +93,7 @@ public class LoadModels : MonoBehaviour
 
     if (success) {
       center_and_scale_model(model_object);
-      Model m = open_models.add(model_name, model_object);
+      Model m = new Model(model_name, model_object);
       return m;
     } else {
       Debug.Log("gltfImport failed instantiating " + model_name);
@@ -229,12 +231,10 @@ public class Models
   public List<Model> models = new List<Model>();
   public ModelUI model_ui = null;  // Called to update UI when model added or removed.
   
-  public Model add(string path, GameObject model_object)
+  public void add(Model model)
   {
-    Model model = new Model(path, model_object);
     models.Add(model);
     update_model_ui();
-    return model;
   }
 
   public int count()

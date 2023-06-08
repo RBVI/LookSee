@@ -295,7 +295,7 @@ public class Meeting : MonoBehaviour
 
     async public void join_meeting(string ip_address)
     {
-            GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = "Joining meeting at IP address " + ip_address;
+        GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = "Joining meeting at IP address " + ip_address;
         Socket socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
         IPEndPoint host_address = new IPEndPoint(IPAddress.Parse(ip_address), port);
         await socket.ConnectAsync(host_address);
@@ -351,7 +351,7 @@ public class Meeting : MonoBehaviour
                 byte [] msg = await read_message(peer);
                 if (msg.Length == 0)
                   break;
-                process_message(msg);
+                await process_message(msg);
                 msg_count += 1;
 //		if (msg_count % 200 == 0)
 //                GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = "Processed message " + msg_count;
@@ -413,7 +413,7 @@ public class Meeting : MonoBehaviour
         return buffer;
     }
 
-    private void process_message(byte[] msg)
+    async private Task<bool> process_message(byte[] msg)
     {
         // GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text += "\r\nGot message type" + msg[0];
         string json = Encoding.UTF8.GetString(msg, 1, msg.Length-1);
@@ -423,9 +423,12 @@ public class Meeting : MonoBehaviour
         else if (message_type == wand_position_message_type)
             process_wand_position_message(json);
         else if (message_type == open_model_message_type)
-            process_open_model_message(json);
+            await process_open_model_message(json);
         else if (message_type == close_model_message_type)
             process_close_model_message(json);
+	else
+	    return false;
+	return true;
     }
 
     private void process_model_position_message(string json)
@@ -433,7 +436,10 @@ public class Meeting : MonoBehaviour
         ModelPositionMessage m = JsonUtility.FromJson<ModelPositionMessage>(json);
         Model model = model_from_name(m.model_name);
         if (model == null)
+	{
+            GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text += "Got model motion, but found no model named " + m.model_name;
             return;
+        }
 	if (align != null)
 	   align.to_local(ref m.position, ref m.rotation);
         Transform t = model.model_object.transform;
@@ -456,7 +462,7 @@ public class Meeting : MonoBehaviour
         if (position_changed)
 	{
             record_latest_position(model);
-	    GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = "Updated model position " + m.position;
+	    GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = "Updated model position " + m.position + " at frame " + frame;
         }
     }
 
@@ -473,22 +479,24 @@ public class Meeting : MonoBehaviour
 	wands.set_wand_positions(m);
     }
 
-    private void process_open_model_message(string json)
+    async private Task<string> process_open_model_message(string json)
     {
+        GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = "Got open model message " + json.Length;
         OpenModelMessage m = JsonUtility.FromJson<OpenModelMessage>(json);
-	var task = models.load_gltf_bytes(m.gltf_data(), m.model_name);
-	task.Wait();
-	Model model = task.Result;
+	Model model = await models.load_gltf_bytes(m.gltf_data(), m.model_name);
 	Transform transform = model.model_object.transform;
 	transform.position = m.position;
 	transform.rotation = m.rotation;
 	transform.localScale = new Vector3(m.scale, m.scale, m.scale);
         record_latest_position(model);
+	models.open_models.add(model);
 	meeting_model_names.Add(m.model_name);
+	return m.model_name;
     }
 
     private void process_close_model_message(string json)
     {
+        GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = "Got close model message ";
         CloseModelMessage m = JsonUtility.FromJson<CloseModelMessage>(json);
 	Model model = model_from_name(m.model_name);
 	models.open_models.remove_model(model);
@@ -531,14 +539,23 @@ public class Meeting : MonoBehaviour
         if (peer == null)
             return false;
 
-	if (waiting_to_send_message())
-	    return false;
+//	if (waiting_to_send_message())
+//	    return false;
 
         bool sent = false;
         foreach (Model m in models.open_models.models)
         {
            if (position_changed(m))
            {
+	   	if (waiting_to_send_message())
+		{
+		    GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = "Could not send model motion, write is blocked " + blocked_message_send_count;
+		    continue;
+		}
+		else
+		{
+		    GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = "Sending model motion " + frame;
+		}
                record_latest_position(m);
                ModelPositionMessage message = new ModelPositionMessage(m);
 	       if (align != null)
@@ -640,6 +657,7 @@ public class Meeting : MonoBehaviour
 	  string model_name = m.model_object.name;
 	  if (!meeting_model_names.Contains(model_name))
 	  {
+           GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = "Sending open model message " + model_name;
 	      meeting_model_names.Add(model_name);
 	      OpenModelMessage msg = new OpenModelMessage();
 	      msg.model_name = model_name;
@@ -652,6 +670,7 @@ public class Meeting : MonoBehaviour
 	      string message = JsonUtility.ToJson(msg);
 	      await send_message(open_model_message_type, message);
 	      count += 1;
+              GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text += "\r\nSent open model message " + model_name;
 	  }
         }
 	return count;
@@ -664,12 +683,14 @@ public class Meeting : MonoBehaviour
 	{
 	  if (model_from_name(model_name) == null)
 	  {
+             GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = "Sending close model message " + model_name;
 	      meeting_model_names.Remove(model_name);
 	      CloseModelMessage msg = new CloseModelMessage();
 	      msg.model_name = model_name;
 	      string message = JsonUtility.ToJson(msg);
 	      await send_message(close_model_message_type, message);
       	      count += 1;
+             GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text += "\r\nSent close model message " + model_name;
 	  }
         }
 	return count;
