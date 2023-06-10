@@ -30,21 +30,20 @@ class ModelUtilities
     return model_bounds(model).center;
   }
     
-  public static GameObject closest_child(GameObject parent, Vector3 origin, Vector3 direction)
+  public static Model closest_model(Models models, Vector3 origin, Vector3 direction)
   {
-	float amin = 90.0f;
-	GameObject gmin = null;
-	foreach (Transform transform in parent.transform)
-	{
-	  GameObject o = transform.gameObject;
-	  Bounds b = model_bounds(o);
-	  float a = Vector3.Angle(b.center - origin, direction);
-	  if (a < amin)
-	  {
-	    amin = a;
-	    gmin = o;
-	  }
-        }
- 	return gmin;
+    float amin = 180.0f;
+    Model closest = null;
+    foreach (Model model in models.models)
+    {
+      Bounds b = model_bounds(model.model_object);
+      float a = Vector3.Angle(b.center - origin, direction);
+      if (a < amin)
+      {
+        amin = a;
+        closest = model;
+      }
+    }
+    return closest;
   }
 }

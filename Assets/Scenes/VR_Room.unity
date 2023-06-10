@@ -309,6 +309,7 @@ GameObject:
   - component: {fileID: 74569120}
   - component: {fileID: 74569122}
   - component: {fileID: 74569123}
+  - component: {fileID: 74569124}
   m_Layer: 0
   m_Name: Controls
   m_TagString: Untagged
@@ -581,10 +582,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: ecba3fbd33fb8bc4e95fdb4b5d5f48d9, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  models: {fileID: 583134608}
-  left_wand: {fileID: 584099139}
-  right_wand: {fileID: 331831297}
-  table_model: {fileID: 2092603368}
+  models: {fileID: 583134609}
+  wands: {fileID: 74569123}
   debug: {fileID: 2016617297}
 --- !u!114 &74569123
 MonoBehaviour:
@@ -600,6 +599,19 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   left_wand: {fileID: 584099148}
   right_wand: {fileID: 331831304}
+--- !u!114 &74569124
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 74569115}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a2ae2d9dd26e44c3daea8035f652621d, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  eye_center: {fileID: 1751244267}
 --- !u!1 &104059004
 GameObject:
   m_ObjectHideFlags: 0
@@ -783,7 +795,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0, y: 0}
   m_AnchorMax: {x: 0, y: 0}
-  m_AnchoredPosition: {x: 0, y: 1}
+  m_AnchoredPosition: {x: 0, y: 10}
   m_SizeDelta: {x: 1, y: 1}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &136512707
@@ -814,6 +826,8 @@ MonoBehaviour:
   pass_through: {fileID: 561149302}
   table: {fileID: 2092603368}
   wands: {fileID: 74569123}
+  headset: {fileID: 74569124}
+  initial_distance: 0.8
 --- !u!224 &148679556 stripped
 RectTransform:
   m_CorrespondingSourceObject: {fileID: 3864264237302546865, guid: 54d4549fa6784c44a8b0341d42b89c27, type: 3}
@@ -1096,7 +1110,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f69910aba80eb014c976bb9f0689cac0, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  eye_center: {fileID: 1751244267}
 --- !u!1 &355637970
 GameObject:
   m_ObjectHideFlags: 0
@@ -1910,9 +1923,10 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   initial_model_size: 0.5
-  initial_model_center: {x: 0, y: 1, z: 0}
+  initial_distance: 1
   example_model: {fileID: 1970085226}
   model_ui: {fileID: 136512707}
+  headset: {fileID: 74569124}
 --- !u!4 &583134610
 Transform:
   m_ObjectHideFlags: 0
@@ -2214,7 +2228,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f69910aba80eb014c976bb9f0689cac0, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  eye_center: {fileID: 1751244267}
 --- !u!1 &635407392
 GameObject:
   m_ObjectHideFlags: 0
@@ -3898,7 +3911,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 400004, guid: 126d619cf4daa52469682f85c1378b4a, type: 3}
       propertyPath: m_LocalPosition.z
-      value: -0.8
+      value: 0
       objectReference: {fileID: 0}
     - target: {fileID: 400004, guid: 126d619cf4daa52469682f85c1378b4a, type: 3}
       propertyPath: m_LocalRotation.w
@@ -3950,7 +3963,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 11400000, guid: 126d619cf4daa52469682f85c1378b4a, type: 3}
       propertyPath: _trackingOriginType
-      value: 1
+      value: 2
       objectReference: {fileID: 0}
     - target: {fileID: 11400000, guid: 126d619cf4daa52469682f85c1378b4a, type: 3}
       propertyPath: useRecommendedMSAALevel
@@ -5920,7 +5933,7 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 2138313170}
   m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
-  m_LocalPosition: {x: 0, y: 1.36144, z: -0.8}
+  m_LocalPosition: {x: 0, y: 1.36144, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:

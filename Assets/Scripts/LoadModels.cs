@@ -11,10 +11,11 @@ using static ModelUtilities;     // use model_bounds()
 
 public class LoadModels : MonoBehaviour
 {
-  public float initial_model_size = 0.5f;  // meters
-  public Vector3 initial_model_center = new Vector3(0, 1, 0);
+  public float initial_model_size = 0.5f;	// meters
+  public float initial_distance = 1.0f;		// meters
   public GameObject example_model;		// Shown if not GLTF files found.
   public ModelUI model_ui;
+  public Headset headset;			// Used for initial model positioning
   
   public Models open_models = new Models();
 
@@ -112,7 +113,7 @@ public class LoadModels : MonoBehaviour
 
     // Shift model to center.
     Vector3 shift = -scale * bounds.center;
-    model_object.transform.position = next_model_center() + shift;
+    model_object.transform.position = initial_model_position() + shift;
   }
 
   void scale_model(GameObject model_object, float scale)
@@ -151,33 +152,12 @@ public class LoadModels : MonoBehaviour
       scale_positions(child_transform, scale);
   }
 
-  Vector3 next_model_center()
+  Vector3 initial_model_position()
   {
-    int n = open_models.count() + 1;
-    int i, j;
-    square_spiral_position_ij(n, out i, out j);
-    float x = initial_model_size * i, y = initial_model_size * j;
-    Vector3 center = initial_model_center + new Vector3(x,0,y);
+    Vector3 look = headset.view_direction();
+    Vector3 view_dir = new Vector3(look.x, 0, look.z);  // Remove vertical component.
+    Vector3 center = headset.eye_position() + initial_distance * view_dir.normalized;
     return center;
-  }
-
-  // Report i,j coordinates for square counterclockwise spiral.
-  // n = 1 is center position.
-  void square_spiral_position_ij(int n, out int i, out int j)
-  {
-    int r = Mathf.CeilToInt((Mathf.Sqrt(n) - 1) / 2);  // Ring
-    int n2 = (r > 0 ? (2*r-1)*(2*r-1) : 0);
-    int o = n - n2 - 1;  // Position along ring
-    if (o <= r)
-      { i = r; j = o; }        // right side
-    else if (o <= 3*r)
-      { i = 2*r - o; j = r; }  // top side
-    else if (o <= 5*r)
-      { i = -r; j = 4*r - o; } // left side
-    else if (o <= 7*r)
-      { i = o - 6*r; j = -r; } // bottom side
-    else
-      { i = r; j = o - 8*r; }  // right side
   }
 
   public void record_files()

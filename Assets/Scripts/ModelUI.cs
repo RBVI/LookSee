@@ -22,9 +22,15 @@ public class ModelUI : MonoBehaviour
     public OVRPassthroughLayer pass_through;
     public GameObject table;
     public Wands wands;				// Used to position UI panel on button click.
+    public Headset headset;			// View direction used to position UI panel.
+    public float initial_distance = 0.8f;	// How far to place UI in front of eyes, meters.
+    private bool initial_position_set = false;
     
     void Start()
     {
+      // Position and show UI only after VR headset position and view direction are known.
+      OVRManager.TrackingAcquired += set_initial_ui_panel_position_delayed;
+
       no_files_message.GetComponent<TextMeshProUGUI>().text += " " + Application.persistentDataPath;
       update_ui_controls();
 
@@ -110,9 +116,27 @@ public class ModelUI : MonoBehaviour
       return;
     Vector3 tip = wand.tip_position();
     transform.position = tip;
-    Vector3 look = tip - wand.eye_position();
+    Vector3 look = tip - headset.eye_position();
     look.y = 0;
     transform.rotation = Quaternion.FromToRotation(new Vector3(0,0,1), look);
+  }
+
+  void set_initial_ui_panel_position_delayed()
+  {
+    if (initial_position_set)
+      return;
+    Invoke("set_initial_ui_panel_position", 0.5f);
+  }
+
+  void set_initial_ui_panel_position()
+  {
+    Vector3 eye_pos = headset.eye_position();
+    Vector3 look = headset.view_direction();
+    Vector3 view_dir = new Vector3(look.x, 0, look.z);  // Remove vertical component.
+    Vector3 center = eye_pos + initial_distance * view_dir.normalized;
+    transform.position = center;
+    transform.rotation = Quaternion.FromToRotation(Vector3.forward, view_dir);
+    initial_position_set = true;
   }
 
   public void pass_through_toggled(bool pass)

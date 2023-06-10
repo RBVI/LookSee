@@ -200,6 +200,9 @@ public class Meeting : MonoBehaviour
     
     async void Update()
     {
+	if (peer == null)
+	    return;
+	    
         frame += 1;
 	adjust_wand_alignment();
 	// TODO: Count how many WriteAsync tasks have not completed and if it gets high (100?)
@@ -222,11 +225,12 @@ public class Meeting : MonoBehaviour
     public void stop_hosting()
     {
         stop_listening();
+	leave_meeting();
     }        
 
     void OnApplicationQuit()
     {
-            stop_hosting();
+        stop_hosting();
     }
 
     public void enable_hand_alignment(bool enable)
@@ -302,17 +306,25 @@ public class Meeting : MonoBehaviour
             GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = "Connected";
         peer = new NetworkStream(socket, true);
         await send_prefix();
-        GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = "Sent prefix";
-        record_current_positions();
+//        GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = "Sent prefix";
+	await send_newly_opened_models();
         await process_messages();
     }
 
     public void leave_meeting()
     {
-        if (peer != null)
-        {
-            peer.Close();
-            peer = null;
+        if (peer == null)
+	    return;
+
+        peer.Close();
+        peer = null;
+	model_positions.Clear();
+	meeting_model_names.Clear();
+	blocked_message_send_count = 0;
+	if (wands != null)
+	{
+	   wands.remove_wand_depictions();
+	   wands = null;
         }
     }
     
@@ -357,8 +369,7 @@ public class Meeting : MonoBehaviour
 //                GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = "Processed message " + msg_count;
             }
         }
-        peer.Close();
-        peer = null;
+	leave_meeting();
         return msg_count;
     }
 
@@ -545,7 +556,8 @@ public class Meeting : MonoBehaviour
         bool sent = false;
         foreach (Model m in models.open_models.models)
         {
-           if (position_changed(m))
+	   string model_name = unique_model_name(m);
+           if (meeting_model_names.Contains(model_name) && position_changed(m))
            {
 	   	if (waiting_to_send_message())
 		{
@@ -752,6 +764,14 @@ class MeetingWands
         left_wand.transform.localScale = wand_scale;
         right_wand = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
         right_wand.transform.localScale = wand_scale;
+    }
+
+    public void remove_wand_depictions()
+    {
+	UnityEngine.Object.Destroy(left_wand);
+	left_wand = null;
+	UnityEngine.Object.Destroy(right_wand);
+	right_wand = null;
     }
     
     public WandPositionMessage wand_positions()
