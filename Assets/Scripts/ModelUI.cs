@@ -3,6 +3,7 @@ using UnityEngine.InputSystem;	   // use InputAction
 using UnityEngine.UI;		   // use Toggle
 using System;			   // use DateTime
 using System.IO;		   // use Path
+using System.Text;                 // use Encoding
 using System.Threading.Tasks;  	   // Use Task
 using TMPro; 			   // use TextMeshProUGUI
 
@@ -25,9 +26,12 @@ public class ModelUI : MonoBehaviour
     public Headset headset;			// View direction used to position UI panel.
     public float initial_distance = 0.8f;	// How far to place UI in front of eyes, meters.
     private bool initial_position_set = false;
+    public LookSeeSettings settings = new LookSeeSettings();
     
     void Start()
     {
+      settings.load();
+      
       // Position and show UI only after VR headset position and view direction are known.
       OVRManager.TrackingAcquired += set_initial_ui_panel_position_delayed;
 
@@ -36,7 +40,7 @@ public class ModelUI : MonoBehaviour
 
       InvokeRepeating("open_new_files", check_for_files_interval, check_for_files_interval);
     }
-    
+	
     public void ShowOrHideUI(InputAction.CallbackContext context)
     {
 //      GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text += " " + context.phase + " " + context.ReadValueAsButton();
@@ -185,7 +189,10 @@ public class ModelUI : MonoBehaviour
   public void join_meeting(bool join)
   {
     if (join)
-        meeting.join_meeting("169.230.21.238");        // TODO: Allow entering the IP address.
+    {
+	string ip_address = settings.meeting_last_join_ip_address;
+        meeting.join_meeting(ip_address);        // TODO: Allow entering the IP address.
+    }
     else
         meeting.leave_meeting();
     start_meeting_toggle.SetActive(!join);
@@ -202,3 +209,35 @@ public class ModelUI : MonoBehaviour
   }
 }
 
+[Serializable]
+public class LookSeeSettings
+{
+  public string meeting_last_join_ip_address = "169.230.21.238";
+  public Matrix4x4 meeting_alignment = Matrix4x4.identity;
+
+  private string settings_path()
+  {
+    return Path.Join(Application.persistentDataPath, "settings.json");
+  }
+
+  public bool load()
+  {
+    string path = settings_path();
+    if (File.Exists(path))
+    {
+      byte[] json_bytes = File.ReadAllBytes(path);
+      string json = Encoding.UTF8.GetString(json_bytes);
+      JsonUtility.FromJsonOverwrite(json, this);
+      return true;
+    }
+    return false;
+  }
+
+  public void save()
+  {
+    string path = settings_path();
+    string json = JsonUtility.ToJson(this);
+    byte[] json_bytes = System.Text.Encoding.UTF8.GetBytes(json);
+    File.WriteAllBytes(path, json_bytes);
+  }
+}

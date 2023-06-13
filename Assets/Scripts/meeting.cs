@@ -171,10 +171,12 @@ using TMPro;                            // use TextMeshProUGUI
 
 public class Meeting : MonoBehaviour
 {
-    public LoadModels models;                        // Open models for adjusting positions.
+    public LoadModels models;                     // Open models for adjusting positions.
     Dictionary<string, Position> model_positions; // Last sent model positions.
     public Text host_address_text;                // For reporting meeting IP address.
-    public Transform left_wand, right_wand;        // For reporting positions to other participants.
+    public Text join_address_text;                // For reporting meeting IP address.
+    public Transform left_wand, right_wand;       // For reporting positions to other participants.
+    public ModelUI ui;				  // Use ui.settings
 
     private int port = 21213;
     private string prefix = "LookSeeMeeting";
@@ -190,12 +192,13 @@ public class Meeting : MonoBehaviour
     private AlignCoordinates align;
     private AlignWandsByHand align_by_hand;
     private int blocked_message_send_count = 0;
-    private List<string> meeting_model_names;
+    private Dictionary<string, Model> meeting_models;   // Map model identifier to Model
 
     void Start()
     {
         model_positions = new Dictionary<string, Position>();
-	meeting_model_names = new List<string>();
+	meeting_models = new Dictionary<string, Model>();
+	join_address_text.text = "Join " + ui.settings.meeting_last_join_ip_address;
     }
     
     async void Update()
@@ -219,6 +222,7 @@ public class Meeting : MonoBehaviour
     {
         host_address_text.text = "Meeting at " + get_local_ip_address();
         start_listening();
+	use_previous_alignment();
         GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = "Started listening for meeting";
     }        
 
@@ -233,12 +237,24 @@ public class Meeting : MonoBehaviour
         stop_hosting();
     }
 
+    private void use_previous_alignment()
+    {
+	if (align == null && !ui.settings.meeting_alignment.isIdentity)
+	{
+	  align = new AlignCoordinates();
+	  align.remote_to_local = ui.settings.meeting_alignment;
+        }
+    }
+    
     public void enable_hand_alignment(bool enable)
     {
         if (enable)
 	  align_by_hand = new AlignWandsByHand();
         else
+	{
 	  align_by_hand = null;
+	  ui.settings.save();
+        }
     }
 
     public void StartWandAlignment(InputAction.CallbackContext context)
@@ -262,6 +278,7 @@ public class Meeting : MonoBehaviour
 	    foreach (Model m in models.open_models.models)
 	        move_object(m.model_object.transform, motion);
 	    record_current_positions();  // Avoid sending model moved message
+	    ui.settings.meeting_alignment = align.remote_to_local;  // Save alignment in settings
 	    return true;
         }
 	return false;
@@ -319,7 +336,7 @@ public class Meeting : MonoBehaviour
         peer.Close();
         peer = null;
 	model_positions.Clear();
-	meeting_model_names.Clear();
+	meeting_models.Clear();
 	blocked_message_send_count = 0;
 	if (wands != null)
 	{
@@ -445,12 +462,12 @@ public class Meeting : MonoBehaviour
     private void process_model_position_message(string json)
     {
         ModelPositionMessage m = JsonUtility.FromJson<ModelPositionMessage>(json);
-        Model model = model_from_name(m.model_name);
-        if (model == null)
+        if (!meeting_models.ContainsKey(m.model_id))
 	{
-            GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text += "Got model motion, but found no model named " + m.model_name;
+            GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text += "Got model motion, but found no model id " + m.model_id + ", name " + m.model_id;
             return;
         }
+        Model model = meeting_models[m.model_id];
 	if (align != null)
 	   align.to_local(ref m.position, ref m.rotation);
         Transform t = model.model_object.transform;
@@ -472,7 +489,7 @@ public class Meeting : MonoBehaviour
         }
         if (position_changed)
 	{
-            record_latest_position(model);
+            record_latest_position(m.model_id);
 	    GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = "Updated model position " + m.position + " at frame " + frame;
         }
     }
@@ -499,27 +516,22 @@ public class Meeting : MonoBehaviour
 	transform.position = m.position;
 	transform.rotation = m.rotation;
 	transform.localScale = new Vector3(m.scale, m.scale, m.scale);
-        record_latest_position(model);
+	meeting_models.Add(m.model_id, model);
+        record_latest_position(m.model_id);
 	models.open_models.add(model);
-	meeting_model_names.Add(m.model_name);
-	return m.model_name;
+	return m.model_id;
     }
 
     private void process_close_model_message(string json)
     {
         GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = "Got close model message ";
         CloseModelMessage m = JsonUtility.FromJson<CloseModelMessage>(json);
-	Model model = model_from_name(m.model_name);
-	models.open_models.remove_model(model);
-	meeting_model_names.Remove(m.model_name);
-    }
-
-    private Model model_from_name(string model_name)
-    {
-        foreach (Model m in models.open_models.models)
-            if (Path.GetFileName(m.path) == model_name)
-                return m;
-        return null;                
+	if (meeting_models.ContainsKey(m.model_id))
+	{
+	    Model model = meeting_models[m.model_id];
+	    models.open_models.remove_model(model);
+	    meeting_models.Remove(m.model_id);
+	}
     }
     
     public void stop_listening()
@@ -554,10 +566,10 @@ public class Meeting : MonoBehaviour
 //	    return false;
 
         bool sent = false;
-        foreach (Model m in models.open_models.models)
+        foreach (var item in meeting_models)
         {
-	   string model_name = unique_model_name(m);
-           if (meeting_model_names.Contains(model_name) && position_changed(m))
+	   string model_id = item.Key;
+           if (position_changed(model_id))
            {
 	   	if (waiting_to_send_message())
 		{
@@ -568,8 +580,9 @@ public class Meeting : MonoBehaviour
 		{
 		    GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = "Sending model motion " + frame;
 		}
-               record_latest_position(m);
-               ModelPositionMessage message = new ModelPositionMessage(m);
+               record_latest_position(model_id);
+	       Model m = item.Value;
+               ModelPositionMessage message = new ModelPositionMessage(model_id, m.model_object.transform);
 	       if (align != null)
 	           align.from_local(ref message.position, ref message.rotation);
                string msg = JsonUtility.ToJson(message);
@@ -613,33 +626,33 @@ public class Meeting : MonoBehaviour
         return blocked_message_send_count > 0;
     }
 	
-    private bool position_changed(Model model)
+    private bool position_changed(string model_id)
     {
-       string mname = unique_model_name(model);
-       if (!model_positions.ContainsKey(mname))
-           return true;
-       bool changed = model_positions[mname].moved(model.model_object.transform);
-       return changed;
+	if (!meeting_models.ContainsKey(model_id))
+	    return false;
+
+        if (!model_positions.ContainsKey(model_id))
+	    return true;
+	Model model = meeting_models[model_id];
+	bool changed = model_positions[model_id].moved(model.model_object.transform);
+	return changed;
     }
 
-    private void record_latest_position(Model model)
+    private void record_latest_position(string model_id)
     {
-       string mname = unique_model_name(model);
-       if (!model_positions.ContainsKey(mname))
-           model_positions.Add(mname, new Position(model.model_object.transform));
+       if (!meeting_models.ContainsKey(model_id))
+           return;
+       Model model = meeting_models[model_id];
+       if (!model_positions.ContainsKey(model_id))
+           model_positions.Add(model_id, new Position(model.model_object.transform));
        else
-           model_positions[mname].update_position(model.model_object.transform);
+           model_positions[model_id].update_position(model.model_object.transform);
     }
 
     private void record_current_positions()
     {
-        foreach (Model m in models.open_models.models)
-          record_latest_position(m);
-    }
-
-    private string unique_model_name(Model model)
-    {
-        return Path.GetFileName(model.path);
+        foreach (string model_id in meeting_models.Keys)
+          record_latest_position(model_id);
     }
 
     async private Task<bool> send_wand_positions()
@@ -666,12 +679,14 @@ public class Meeting : MonoBehaviour
 	int count = 0;
         foreach (Model m in models.open_models.models)
 	{
-	  string model_name = m.model_object.name;
-	  if (!meeting_model_names.Contains(model_name))
+	  if (!meeting_models.ContainsValue(m))
 	  {
-           GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = "Sending open model message " + model_name;
-	      meeting_model_names.Add(model_name);
+	      string model_name = m.model_object.name;
+              GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = "Sending open model message " + model_name;
+	      string model_id = new_model_id();
+	      meeting_models.Add(model_id, m);
 	      OpenModelMessage msg = new OpenModelMessage();
+	      msg.model_id = model_id;
 	      msg.model_name = model_name;
 	      byte[] gltf_data = File.ReadAllBytes(m.path);
 	      msg.set_gltf_data(gltf_data);
@@ -688,21 +703,32 @@ public class Meeting : MonoBehaviour
 	return count;
     }
 
+    private string new_model_id()
+    {
+       byte[] key_bytes = new byte[6];
+       System.Random r = new System.Random();
+       r.NextBytes(key_bytes);
+       string model_id = Convert.ToBase64String(key_bytes);
+       return model_id;
+    }
+    
     async private Task<int> send_newly_closed_models()
     {
 	int count = 0;
-        foreach (string model_name in meeting_model_names.ToArray())
+        foreach (var item in meeting_models)
 	{
-	  if (model_from_name(model_name) == null)
+	  Model m = item.Value;
+	  if (!models.open_models.models.Contains(m))
 	  {
-             GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = "Sending close model message " + model_name;
-	      meeting_model_names.Remove(model_name);
+              // GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = "Sending close model message " + model_id;
+	      string model_id = item.Key;
+	      meeting_models.Remove(model_id);
 	      CloseModelMessage msg = new CloseModelMessage();
-	      msg.model_name = model_name;
+	      msg.model_id = model_id;
 	      string message = JsonUtility.ToJson(msg);
 	      await send_message(close_model_message_type, message);
       	      count += 1;
-             GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text += "\r\nSent close model message " + model_name;
+              // GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text += "\r\nSent close model message " + model_id;
 	  }
         }
 	return count;
@@ -712,18 +738,17 @@ public class Meeting : MonoBehaviour
 [Serializable]
 public class ModelPositionMessage
 {
-    public string model_name;
+    public string model_id;
     public Vector3 position;
     public Quaternion rotation;
     public float scale;
 
-    public ModelPositionMessage(Model model)
+    public ModelPositionMessage(string model_id, Transform transform)
     {
-        this.model_name = Path.GetFileName(model.path);
-        Transform t = model.model_object.transform;
-        this.position = t.position;
-        this.rotation = t.rotation;
-        this.scale = t.localScale.x;
+        this.model_id = model_id;
+        this.position = transform.position;
+        this.rotation = transform.rotation;
+        this.scale = transform.localScale.x;
     }
 }
 
@@ -806,7 +831,7 @@ public class WandPositionMessage
 
 class AlignCoordinates
 {
-    Matrix4x4 remote_to_local = Matrix4x4.identity;
+    public Matrix4x4 remote_to_local = Matrix4x4.identity;
 
     public AlignCoordinates copy()
     {
@@ -909,7 +934,8 @@ class AlignWandsByHand
 [Serializable]
 public class OpenModelMessage
 {
-    public string model_name;
+    public string model_id;	// Unique identifier
+    public string model_name;	// File name
     public string gltf_base64;
     public Vector3 position;
     public Quaternion rotation;
@@ -929,5 +955,5 @@ public class OpenModelMessage
 [Serializable]
 public class CloseModelMessage
 {
-    public string model_name;
+    public string model_id;
 }
