@@ -1,18 +1,23 @@
+using System;			   	// use Action and Func
+using System.Threading.Tasks;  	   	// Use Task
 using UnityEngine;
-using UnityEngine.EventSystems;  // use EventSystem
-using System;			   // use DateTime
-using System.Collections;
-using TMPro;  // Use TextMeshProUGUI
-using UnityEngine.InputSystem;			// use InputAction
-using UnityEngine.UI;		// use Toggle
+using UnityEngine.EventSystems;  	// use EventSystem
+using UnityEngine.Events;		// Use UnityEvent
+using UnityEngine.InputSystem;		// use InputAction
+using UnityEngine.UI;			// use Toggle
+using TMPro; 			   // use TextMeshProUGUI
 
+//
+// ButtonSelect is makes user interface buttons that select when a VR hand controller
+// is touching the button and runs some code when the VR hand controller trigger is
+// pulled.
+//
 public class ButtonSelect : MonoBehaviour
 {
-    public InputActionAsset input_actions;
-    public GameObject model;
-    public string file_path;
-    public ModelUI ui;
-    LoadModels load_models;
+    public Action<string> action;		// Action to perform on button press
+    public Func<Task> async_action;		// Async action to perform on button press.
+    public InputActionAsset input_actions;	// To get VR controller button events.
+    public UnityEvent<string> event_action;	// Settable in Unity editor.
     
     void Start()
     {
@@ -20,7 +25,6 @@ public class ButtonSelect : MonoBehaviour
       InputActionMap action_map = input_actions.FindActionMap("Player");
       InputAction click = action_map.FindAction("ClickButton");
       click.performed += ClickButton;
-      load_models = GameObject.Find("Models").GetComponent<LoadModels>();
     }
 
     void OnDestroy()
@@ -34,45 +38,34 @@ public class ButtonSelect : MonoBehaviour
     void OnTriggerEnter(Collider collider)
     {
       if (collider.tag == "Wand")
-      {
         EventSystem.current.SetSelectedGameObject(gameObject);
-//        gameObject.GetComponentInChildren<TextMeshProUGUI>().text = "enter";
-      }
     }
 
     void OnTriggerExit(Collider collider)
     {
       if (collider.tag == "Wand")
-      {
         EventSystem.current.SetSelectedGameObject(null);
-//        gameObject.GetComponentInChildren<TextMeshProUGUI>().text = "exit";
-      }
     }
 
     public async void ClickButton(InputAction.CallbackContext context)
     {
+      if (!gameObject.activeInHierarchy)
+        return;
+	
       if (!context.performed)
         return;
 
       if (EventSystem.current.currentSelectedGameObject != gameObject)
         return;
-
-//      Debug.Log("clicked button " + gameObject.name);
-
+      
       string button_name = gameObject.name;
-      if (button_name == "Hide button" && model != null)
-        model.SetActive(false);
-      if (button_name == "Show button" && model != null)
-        model.SetActive(true);
-      if (button_name == "Close button" && model != null)
-      {
-        load_models.open_models.remove_game_object(model);
-	model = null;
-      }
-      if (button_name == "Open button" && file_path != null)
-      {
-        await load_models.load_gltf_file(file_path);
-      }
+      GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = "Button name " + gameObject.name;
+      if (event_action != null)
+          event_action.Invoke(button_name);
+      if (action != null)
+          action(button_name);
+      if (async_action != null)
+          await async_action();
 
       // Toggle any clicked toggle button.
       Toggle t = gameObject.GetComponent<Toggle>();

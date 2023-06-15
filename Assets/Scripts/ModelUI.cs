@@ -19,7 +19,10 @@ public class ModelUI : MonoBehaviour
     public LoadModels load_models;
     public FileReceiver file_receiver;
     public Meeting meeting;
+    public GameObject meeting_buttons, meeting_host_status, meeting_join_status;
     public GameObject start_meeting_toggle, join_meeting_toggle, align_meeting_toggle;
+    public GameObject meeting_keypad;		// For entering IP address
+    public TMP_InputField ip_address;
     public OVRPassthroughLayer pass_through;
     public GameObject table;
     public Wands wands;				// Used to position UI panel on button click.
@@ -40,7 +43,7 @@ public class ModelUI : MonoBehaviour
 
       InvokeRepeating("open_new_files", check_for_files_interval, check_for_files_interval);
     }
-	
+    
     public void ShowOrHideUI(InputAction.CallbackContext context)
     {
 //      GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text += " " + context.phase + " " + context.ReadValueAsButton();
@@ -69,8 +72,19 @@ public class ModelUI : MonoBehaviour
 	  GameObject row = Instantiate(hide_show_close_prefab,
 	                               new Vector3(0f,y,0f), Quaternion.identity);
 	  row.transform.SetParent(gameObject.transform, false);
+  	  row.transform.SetSiblingIndex(0);  // Stack beneath meeting keypad
 	  foreach(ButtonSelect bs in row.GetComponentsInChildren<ButtonSelect>())
-	    bs.model = model.model_object;
+	  {
+            Action<string> open_show_hide = (string button_name) => {
+	       if (button_name == "Hide button")
+	          model.model_object.SetActive(false);
+	       else if (button_name == "Show button")
+	          model.model_object.SetActive(true);
+  	       else if (button_name == "Close button")
+                  load_models.open_models.remove_model(model);
+	       };
+	    bs.action = open_show_hide;
+	  }
           string filename = Path.GetFileName(model.path);
 	  GameObject name = row.transform.Find("Name").gameObject;
 	  name.GetComponentInChildren<TextMeshProUGUI>().text = filename;
@@ -95,8 +109,12 @@ public class ModelUI : MonoBehaviour
 	  GameObject row = Instantiate(open_file_prefab,
 	                               new Vector3(x,y,0f), Quaternion.identity);
 	  row.transform.SetParent(gameObject.transform, false);
+	  row.transform.SetSiblingIndex(0);  // Stack beneath meeting keypad
 	  ButtonSelect bs = row.GetComponentInChildren<ButtonSelect>();
-	  bs.file_path = path;
+	  // Register open file callback function.
+	  Func<Task> open_file = async () => await load_models.load_gltf_file(path);
+          bs.async_action = open_file;
+	  // Set user interface button text
           string filename = Path.GetFileNameWithoutExtension(path);
 	  GameObject name = row.transform.Find("Name").gameObject;
 	  name.GetComponentInChildren<TextMeshProUGUI>().text = filename;
@@ -176,7 +194,54 @@ public class ModelUI : MonoBehaviour
         file_receiver.StopListening();
   }
 
-  public void start_meeting(bool start)
+  public void start_meeting(string button_name)
+  {
+    meeting.start_hosting();
+    meeting_buttons.SetActive(false);
+    meeting_host_status.SetActive(true);
+  }
+
+  public void end_meeting(string button_name)
+  {
+    meeting.stop_hosting();
+    meeting_host_status.SetActive(false);
+    meeting_buttons.SetActive(true);
+  }
+
+  public void join_meeting(string button_name)
+  {
+    meeting_keypad.SetActive(true);
+  }
+
+  public void leave_meeting(string button_name)
+  {
+    meeting.leave_meeting();
+    meeting_join_status.SetActive(false);
+    meeting_buttons.SetActive(true);
+  }
+
+  public void meeting_address_keypad(string button_name)
+  {
+    string addr = ip_address.text;
+    if (button_name == "Join")
+    {
+      meeting.join_meeting(addr);
+      meeting_keypad.SetActive(false);
+      meeting_buttons.SetActive(false);
+      meeting_join_status.SetActive(true);
+    }
+    else if (button_name == "Cancel")
+      meeting_keypad.SetActive(false);
+    else if (button_name == "b")
+    {
+      if (addr.Length > 0)
+        ip_address.text = addr.Substring(0,addr.Length-1);
+    }
+    else
+      ip_address.text += button_name;
+  }
+
+  public void start_meeting_old(bool start)
   {
     if (start)
         meeting.start_hosting();
@@ -186,7 +251,7 @@ public class ModelUI : MonoBehaviour
     align_meeting_toggle.SetActive(start);
   }
 
-  public void join_meeting(bool join)
+  public void join_meeting_old(bool join)
   {
     if (join)
     {
@@ -212,7 +277,7 @@ public class ModelUI : MonoBehaviour
 [Serializable]
 public class LookSeeSettings
 {
-  public string meeting_last_join_ip_address = "169.230.21.238";
+  public string meeting_last_join_ip_address;
   public Matrix4x4 meeting_alignment = Matrix4x4.identity;
 
   private string settings_path()
