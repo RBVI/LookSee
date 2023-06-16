@@ -41,6 +41,8 @@ public class ModelUI : MonoBehaviour
       no_files_message.GetComponent<TextMeshProUGUI>().text += " " + Application.persistentDataPath;
       update_ui_controls();
 
+      ip_address.text = settings.meeting_last_join_ip_address;
+
       InvokeRepeating("open_new_files", check_for_files_interval, check_for_files_interval);
     }
     
@@ -226,6 +228,7 @@ public class ModelUI : MonoBehaviour
     if (button_name == "Join")
     {
       meeting.join_meeting(addr);
+      settings.meeting_last_join_ip_address = addr;
       meeting_keypad.SetActive(false);
       meeting_buttons.SetActive(false);
       meeting_join_status.SetActive(true);

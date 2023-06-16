@@ -59,7 +59,7 @@ public class ButtonSelect : MonoBehaviour
         return;
       
       string button_name = gameObject.name;
-      GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = "Button name " + gameObject.name;
+//      GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = "Button name " + gameObject.name;
       if (event_action != null)
           event_action.Invoke(button_name);
       if (action != null)

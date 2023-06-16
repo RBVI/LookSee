@@ -173,8 +173,8 @@ public class Meeting : MonoBehaviour
 {
     public LoadModels models;                     // Open models for adjusting positions.
     Dictionary<string, Position> model_positions; // Last sent model positions.
-    public Text host_address_text;                // For reporting meeting IP address.
-    public Text join_address_text;                // For reporting meeting IP address.
+    public TextMeshProUGUI host_address_text;     // For reporting meeting IP address.
+    public TextMeshProUGUI join_address_text;     // For reporting meeting IP address.
     public Transform left_wand, right_wand;       // For reporting positions to other participants.
     public ModelUI ui;				  // Use ui.settings
 
@@ -198,7 +198,7 @@ public class Meeting : MonoBehaviour
     {
         model_positions = new Dictionary<string, Position>();
 	meeting_models = new Dictionary<string, Model>();
-	join_address_text.text = "Join " + ui.settings.meeting_last_join_ip_address;
+	join_address_text.text = "Connected " + ui.settings.meeting_last_join_ip_address;
     }
     
     async void Update()
@@ -320,7 +320,7 @@ public class Meeting : MonoBehaviour
         Socket socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
         IPEndPoint host_address = new IPEndPoint(IPAddress.Parse(ip_address), port);
         await socket.ConnectAsync(host_address);
-            GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = "Connected";
+        GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = "Connected";
         peer = new NetworkStream(socket, true);
         await send_prefix();
 //        GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = "Sent prefix";
