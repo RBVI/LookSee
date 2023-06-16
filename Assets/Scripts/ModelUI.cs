@@ -2,6 +2,7 @@ using UnityEngine;
 using UnityEngine.InputSystem;	   // use InputAction
 using UnityEngine.UI;		   // use Toggle
 using System;			   // use DateTime
+using System.Collections.Generic;  // use List
 using System.IO;		   // use Path
 using System.Text;                 // use Encoding
 using System.Threading.Tasks;  	   // Use Task
@@ -13,6 +14,8 @@ public class ModelUI : MonoBehaviour
     public GameObject open_file_prefab;
     public GameObject no_files_message;
     public GameObject options;
+    public GameObject error_panel;
+    public TextMeshProUGUI error_text;
     public float check_for_files_interval = 5.0f;	// seconds
     public bool open_new = false;
     public Toggle open_new_toggle;
@@ -20,7 +23,7 @@ public class ModelUI : MonoBehaviour
     public FileReceiver file_receiver;
     public Meeting meeting;
     public GameObject meeting_buttons, meeting_host_status, meeting_join_status;
-    public GameObject start_meeting_toggle, join_meeting_toggle, align_meeting_toggle;
+    public GameObject align_meeting_toggle;
     public GameObject meeting_keypad;		// For entering IP address
     public TMP_InputField ip_address;
     public OVRPassthroughLayer pass_through;
@@ -201,6 +204,8 @@ public class ModelUI : MonoBehaviour
     meeting.start_hosting();
     meeting_buttons.SetActive(false);
     meeting_host_status.SetActive(true);
+    Vector3 dim = OVRManager.boundary.GetDimensions(OVRBoundary.BoundaryType.PlayArea);
+    GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = "Boundary size " + dim.x + " " + dim.z;
   }
 
   public void end_meeting(string button_name)
@@ -227,11 +232,8 @@ public class ModelUI : MonoBehaviour
     string addr = ip_address.text;
     if (button_name == "Join")
     {
-      meeting.join_meeting(addr);
-      settings.meeting_last_join_ip_address = addr;
       meeting_keypad.SetActive(false);
-      meeting_buttons.SetActive(false);
-      meeting_join_status.SetActive(true);
+      meeting.join_meeting(addr);
     }
     else if (button_name == "Cancel")
       meeting_keypad.SetActive(false);
@@ -244,33 +246,48 @@ public class ModelUI : MonoBehaviour
       ip_address.text += button_name;
   }
 
-  public void start_meeting_old(bool start)
+  public void report_join_success(string address)
   {
-    if (start)
-        meeting.start_hosting();
-    else
-        meeting.stop_hosting();
-    join_meeting_toggle.SetActive(!start);
-    align_meeting_toggle.SetActive(start);
+    settings.meeting_last_join_ip_address = address;
+    meeting_buttons.SetActive(false);
+    meeting_join_status.SetActive(true);
+    GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = "Connected";
   }
 
-  public void join_meeting_old(bool join)
+  public void report_join_failed(string error_message)
   {
-    if (join)
-    {
-	string ip_address = settings.meeting_last_join_ip_address;
-        meeting.join_meeting(ip_address);        // TODO: Allow entering the IP address.
-    }
-    else
-        meeting.leave_meeting();
-    start_meeting_toggle.SetActive(!join);
+    show_error_message(error_message);
+    GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = error_message;
   }
-
+  
   public void align_meeting(bool align)
   {
     meeting.enable_hand_alignment(align);
   }
 
+  public void show_error_message(string message)
+  {
+    error_text.text = message;
+    position_error_panel();
+    error_panel.SetActive(true);
+  }
+
+  void position_error_panel()
+  {
+    Vector3 eye_pos = headset.eye_position();
+    Vector3 look = headset.view_direction();
+    Vector3 view_dir = new Vector3(look.x, 0, look.z);  // Remove vertical component.
+    Vector3 center = eye_pos + initial_distance * view_dir.normalized;
+    Transform transform = error_panel.transform;
+    transform.position = center;
+    transform.rotation = Quaternion.FromToRotation(Vector3.forward, view_dir);
+  }
+  
+  public void dismiss_error_panel()
+  {
+    error_panel.SetActive(false);
+  }
+  
   public void show_table(bool show)
   {
     table.SetActive(show);
@@ -281,7 +298,7 @@ public class ModelUI : MonoBehaviour
 public class LookSeeSettings
 {
   public string meeting_last_join_ip_address;
-  public Matrix4x4 meeting_alignment = Matrix4x4.identity;
+  public List<MeetingCoordinateAlignment> meeting_alignments;
 
   private string settings_path()
   {
@@ -308,4 +325,43 @@ public class LookSeeSettings
     byte[] json_bytes = System.Text.Encoding.UTF8.GetBytes(json);
     File.WriteAllBytes(path, json_bytes);
   }
+
+  public void save_meeting_alignment(string room_id1, string room_id2, Matrix4x4 m)
+  {
+    int i = meeting_alignment_index(room_id1, room_id2);
+    if (i >= 0)
+      meeting_alignments.RemoveAt(i);
+    MeetingCoordinateAlignment align = new MeetingCoordinateAlignment();
+    align.room_id1 = room_id1;
+    align.room_id2 = room_id2;
+    align.alignment = m;
+    meeting_alignments.Add(align);
+  }
+
+  public bool find_meeting_alignment(string room_id1, string room_id2, ref Matrix4x4 m)
+  {
+    int i = meeting_alignment_index(room_id1, room_id2);
+    if (i < 0)
+      return false;
+    m = meeting_alignments[i].alignment;
+    return true;
+  }
+
+  private int meeting_alignment_index(string room_id1, string room_id2)
+  {
+    for (int i = 0 ; i < meeting_alignments.Count ; ++i)
+      if (meeting_alignments[i].room_id1 == room_id1 &&
+          meeting_alignments[i].room_id2 == room_id2)
+	return i;
+    return -1;
+  }
+
 }
+
+[Serializable]
+public class MeetingCoordinateAlignment
+{
+  public string room_id1, room_id2;
+  public Matrix4x4 alignment;
+}
+

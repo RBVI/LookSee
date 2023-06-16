@@ -188,11 +188,13 @@ public class Meeting : MonoBehaviour
     private const byte wand_position_message_type = 2;
     private const byte open_model_message_type = 3;
     private const byte close_model_message_type = 4;
+    private const byte alignment_message_type = 5;
     private MeetingWands wands;
     private AlignCoordinates align;
     private AlignWandsByHand align_by_hand;
     private int blocked_message_send_count = 0;
     private Dictionary<string, Model> meeting_models;   // Map model identifier to Model
+    private string remote_room_coordinates_id;
 
     void Start()
     {
@@ -222,7 +224,6 @@ public class Meeting : MonoBehaviour
     {
         host_address_text.text = "Meeting at " + get_local_ip_address();
         start_listening();
-	use_previous_alignment();
         GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = "Started listening for meeting";
     }        
 
@@ -235,15 +236,6 @@ public class Meeting : MonoBehaviour
     void OnApplicationQuit()
     {
         stop_hosting();
-    }
-
-    private void use_previous_alignment()
-    {
-	if (align == null && !ui.settings.meeting_alignment.isIdentity)
-	{
-	  align = new AlignCoordinates();
-	  align.remote_to_local = ui.settings.meeting_alignment;
-        }
     }
     
     public void enable_hand_alignment(bool enable)
@@ -278,10 +270,29 @@ public class Meeting : MonoBehaviour
 	    foreach (Model m in models.open_models.models)
 	        move_object(m.model_object.transform, motion);
 	    record_current_positions();  // Avoid sending model moved message
-	    ui.settings.meeting_alignment = align.remote_to_local;  // Save alignment in settings
+	    if (remote_room_coordinates_id != "")
+	    {
+	        // Save alignment in settings
+	    	ui.settings.save_meeting_alignment(room_coordinate_system_identifier(),
+	                                           remote_room_coordinates_id,
+						   align.remote_to_local);
+ 	    }
 	    return true;
         }
 	return false;
+    }
+
+    string room_coordinate_system_identifier()
+    {
+       // Looks like the Oculus API (Oculus Integration version 53.1) does not provide a way
+       // to get a unique identifier for the physical room and its coordinate system
+       // (probably depends on guardian boundary).  It has an OVRSpace class with a TryGetUuid()
+       // method but I saw no way to get the current space.
+       // So instead we identify the room and coordinate system by its size in millimeters.
+       
+       Vector3 dim = OVRManager.boundary.GetDimensions(OVRBoundary.BoundaryType.PlayArea);
+       string room_id = (int)(dim.x * 1000) + "_" + (int)(dim.z * 1000);
+       return room_id;
     }
 
     void move_object(Transform transform, Matrix4x4 motion)
@@ -316,14 +327,29 @@ public class Meeting : MonoBehaviour
 
     async public void join_meeting(string ip_address)
     {
+        // This method only returns when the participant leaves the meeting
+	// or if an error occurs while connecting.
         GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = "Joining meeting at IP address " + ip_address;
         Socket socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
         IPEndPoint host_address = new IPEndPoint(IPAddress.Parse(ip_address), port);
-        await socket.ConnectAsync(host_address);
-        GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = "Connected";
+	try
+	{
+            await socket.ConnectAsync(host_address);
+	}
+    	catch (SocketException e)
+	{
+	  ui.report_join_failed("Connection to " + ip_address + " failed, socket error code " + e.ErrorCode);
+	  return;
+        }
+	catch (Exception)
+	{
+	  ui.report_join_failed("Connection to " + ip_address + " failed");
+	  return;
+	}
+	ui.report_join_success(ip_address);
         peer = new NetworkStream(socket, true);
         await send_prefix();
-//        GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = "Sent prefix";
+	await send_room_coordinates_alignment();
 	await send_newly_opened_models();
         await process_messages();
     }
@@ -337,6 +363,7 @@ public class Meeting : MonoBehaviour
         peer = null;
 	model_positions.Clear();
 	meeting_models.Clear();
+	remote_room_coordinates_id = "";
 	blocked_message_send_count = 0;
 	if (wands != null)
 	{
@@ -454,6 +481,8 @@ public class Meeting : MonoBehaviour
             await process_open_model_message(json);
         else if (message_type == close_model_message_type)
             process_close_model_message(json);
+        else if (message_type == alignment_message_type)
+            process_alignment_message(json);
 	else
 	    return false;
 	return true;
@@ -531,6 +560,31 @@ public class Meeting : MonoBehaviour
 	    Model model = meeting_models[m.model_id];
 	    models.open_models.remove_model(model);
 	    meeting_models.Remove(m.model_id);
+	}
+    }
+
+    async private Task send_room_coordinates_alignment()
+    {
+	AlignmentMessage message = new AlignmentMessage();
+	message.room_coordinates_id = room_coordinate_system_identifier();
+        string msg = JsonUtility.ToJson(message);
+	await send_message(alignment_message_type, msg);
+    }
+
+    private void process_alignment_message(string json)
+    {
+	if (align != null)
+	    return;		// Already have coordinate alignment
+
+	// Try to use previously saved coordinate system alignment.
+        AlignmentMessage m = JsonUtility.FromJson<AlignmentMessage>(json);
+	Matrix4x4 mat = Matrix4x4.identity;
+	remote_room_coordinates_id = m.room_coordinates_id;
+	if (ui.settings.find_meeting_alignment(room_coordinate_system_identifier(),
+	                                       remote_room_coordinates_id, ref mat))
+	{
+	    align = new AlignCoordinates();
+	    align.remote_to_local = mat;
 	}
     }
     
@@ -956,4 +1010,10 @@ public class OpenModelMessage
 public class CloseModelMessage
 {
     public string model_id;
+}
+
+[Serializable]
+public class AlignmentMessage
+{
+    public string room_coordinates_id;
 }
