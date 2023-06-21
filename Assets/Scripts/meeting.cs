@@ -188,13 +188,12 @@ public class Meeting : MonoBehaviour
     private const byte wand_position_message_type = 2;
     private const byte open_model_message_type = 3;
     private const byte close_model_message_type = 4;
-    private const byte alignment_message_type = 5;
-    private MeetingWands wands;
-    private AlignCoordinates align;
-    private AlignWandsByHand align_by_hand;
+    private MeetingWands wands;				// Other participants' wands
+    private RoomCoordinates room_coords;
+    private SetRoomCoordinates set_room_coords;		// Place two markers to define x-axis.
+    public GameObject coord_marker1_prefab, coord_marker2_prefab;
     private int blocked_message_send_count = 0;
     private Dictionary<string, Model> meeting_models;   // Map model identifier to Model
-    private string remote_room_coordinates_id;
 
     void Start()
     {
@@ -209,7 +208,6 @@ public class Meeting : MonoBehaviour
 	    return;
 	    
         frame += 1;
-	adjust_wand_alignment();
 	// TODO: Count how many WriteAsync tasks have not completed and if it gets high (100?)
 	// then stop trying to send more until the number goes back down (0?).
 	// Otherwise we get thousands of blocked writes when another participant takes off
@@ -238,49 +236,71 @@ public class Meeting : MonoBehaviour
         stop_hosting();
     }
     
-    public void enable_hand_alignment(bool enable)
+    public void set_room_coordinates(bool enable)
     {
         if (enable)
-	  align_by_hand = new AlignWandsByHand();
-        else
 	{
-	  align_by_hand = null;
-	  ui.settings.save();
-        }
-    }
-
-    public void StartWandAlignment(InputAction.CallbackContext context)
-    {
-        if (align_by_hand != null)
-	  align_by_hand.start_wand_alignment(context, left_wand, right_wand);
-    }
-
-    bool adjust_wand_alignment()
-    {
-	if (align_by_hand == null || wands == null)
-	    return false;
-
-        if (align == null)
-	    align = new AlignCoordinates();
-	Matrix4x4 motion = new Matrix4x4();
-	if (align_by_hand.adjust_alignment(align, ref motion))
+	  set_room_coords = new SetRoomCoordinates(left_wand, right_wand, models.gameObject.transform,
+	  		    			   coord_marker1_prefab, coord_marker2_prefab);
+          set_room_coords.show_current_coordinates(room_coords);
+	}
+        else if (set_room_coords != null)
 	{
-	    move_object(wands.left_wand.transform, motion);
-	    move_object(wands.right_wand.transform, motion);
-	    foreach (Model m in models.open_models.models)
-	        move_object(m.model_object.transform, motion);
-	    record_current_positions();  // Avoid sending model moved message
-	    if (remote_room_coordinates_id != "")
-	    {
-	        // Save alignment in settings
-	    	ui.settings.save_meeting_alignment(room_coordinate_system_identifier(),
-	                                           remote_room_coordinates_id,
-						   align.remote_to_local);
- 	    }
-	    return true;
-        }
-	return false;
+	  set_room_coords.finished();
+	  set_room_coords = null;
+	}
     }
+
+    public void DropCoordinateMarker(InputAction.CallbackContext context)
+    {
+        if (set_room_coords == null)
+	  return;
+
+        if (!set_room_coords.drop_marker(context))
+	  return;
+
+	Vector3 x1 = Vector3.zero, x2 = Vector3.zero;
+	if (!set_room_coords.marker_positions(ref x1, ref x2))
+	  return;
+
+        GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text += "\r\nSaving alignment " + x1 + " and " + x2;
+	
+        // Update room coordinates.
+	if (room_coords == null)
+	  room_coords = new RoomCoordinates();
+	Matrix4x4 motion = room_coords.set_axis_markers(x1, x2);
+
+        GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text += "\r\nSet alignment " + x1 + " and " + x2;
+	
+	// Move models so they reflect the new room coordinates.
+	if (wands != null)
+	{
+	  move_object(wands.left_wand.transform, motion);
+	  move_object(wands.right_wand.transform, motion);
+	}
+	foreach (Model m in models.open_models.models)
+	  move_object(m.model_object.transform, motion);
+    	record_current_positions();  // Avoid sending model moved messages
+
+        GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text += "\r\nRealigned " + x1 + " and " + x2;
+	// Save the new room coordinates in settings
+    	ui.settings.save_meeting_coordinates(room_coordinate_system_identifier(), x1, x2);
+        ui.settings.save();
+        GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text += "\r\nSaved " + x1 + " and " + x2;
+    }
+
+    bool load_room_coordinates()
+    {
+	Vector3 x1 = Vector3.zero, x2 = Vector3.zero;
+	string room_id = room_coordinate_system_identifier();
+	if (!ui.settings.find_meeting_coordinates(room_id, ref x1, ref x2))
+	  return false;
+	room_coords = new RoomCoordinates();
+	room_coords.set_axis_markers(x1, x2);
+        GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text += "\r\nGot room coords " + room_id + " x1 " + x1 + " x2 " + x2;	
+	return true;
+    }
+
 
     string room_coordinate_system_identifier()
     {
@@ -321,6 +341,8 @@ public class Meeting : MonoBehaviour
 //        Debug.Log("Socket listening at IP address " + listening_socket.LocalEndPoint.Serialize().ToString() + " port " + port);
 //        Debug.Log("Socket listening at IP address " + IPAddress.Parse(((IPEndPoint) listening_socket.LocalEndPoint).Address.ToString()) + " port " + port);
 
+	load_room_coordinates();
+
         while (keep_listening)
             await handle_connection();
     }
@@ -347,9 +369,9 @@ public class Meeting : MonoBehaviour
 	  return;
 	}
 	ui.report_join_success(ip_address);
+	load_room_coordinates();
         peer = new NetworkStream(socket, true);
         await send_prefix();
-	await send_room_coordinates_alignment();
 	await send_newly_opened_models();
         await process_messages();
     }
@@ -363,7 +385,6 @@ public class Meeting : MonoBehaviour
         peer = null;
 	model_positions.Clear();
 	meeting_models.Clear();
-	remote_room_coordinates_id = "";
 	blocked_message_send_count = 0;
 	if (wands != null)
 	{
@@ -481,8 +502,6 @@ public class Meeting : MonoBehaviour
             await process_open_model_message(json);
         else if (message_type == close_model_message_type)
             process_close_model_message(json);
-        else if (message_type == alignment_message_type)
-            process_alignment_message(json);
 	else
 	    return false;
 	return true;
@@ -497,8 +516,8 @@ public class Meeting : MonoBehaviour
             return;
         }
         Model model = meeting_models[m.model_id];
-	if (align != null)
-	   align.to_local(ref m.position, ref m.rotation);
+	if (room_coords != null)
+	   room_coords.from_room(ref m.position, ref m.rotation);
         Transform t = model.model_object.transform;
         bool position_changed = false;
         if (m.position != Vector3.zero)
@@ -526,10 +545,10 @@ public class Meeting : MonoBehaviour
     private void process_wand_position_message(string json)
     {
         WandPositionMessage m = JsonUtility.FromJson<WandPositionMessage>(json);
-	if (align != null)
+	if (room_coords != null)
 	{
-	   align.to_local(ref m.left_position, ref m.left_rotation);
-	   align.to_local(ref m.right_position, ref m.right_rotation);
+	   room_coords.from_room(ref m.left_position, ref m.left_rotation);
+	   room_coords.from_room(ref m.right_position, ref m.right_rotation);
         }
 	if (wands == null)
 	    wands = new MeetingWands();
@@ -560,31 +579,6 @@ public class Meeting : MonoBehaviour
 	    Model model = meeting_models[m.model_id];
 	    models.open_models.remove_model(model);
 	    meeting_models.Remove(m.model_id);
-	}
-    }
-
-    async private Task send_room_coordinates_alignment()
-    {
-	AlignmentMessage message = new AlignmentMessage();
-	message.room_coordinates_id = room_coordinate_system_identifier();
-        string msg = JsonUtility.ToJson(message);
-	await send_message(alignment_message_type, msg);
-    }
-
-    private void process_alignment_message(string json)
-    {
-	if (align != null)
-	    return;		// Already have coordinate alignment
-
-	// Try to use previously saved coordinate system alignment.
-        AlignmentMessage m = JsonUtility.FromJson<AlignmentMessage>(json);
-	Matrix4x4 mat = Matrix4x4.identity;
-	remote_room_coordinates_id = m.room_coordinates_id;
-	if (ui.settings.find_meeting_alignment(room_coordinate_system_identifier(),
-	                                       remote_room_coordinates_id, ref mat))
-	{
-	    align = new AlignCoordinates();
-	    align.remote_to_local = mat;
 	}
     }
     
@@ -637,8 +631,8 @@ public class Meeting : MonoBehaviour
                record_latest_position(model_id);
 	       Model m = item.Value;
                ModelPositionMessage message = new ModelPositionMessage(model_id, m.model_object.transform);
-	       if (align != null)
-	           align.from_local(ref message.position, ref message.rotation);
+	       if (room_coords != null)
+	           room_coords.to_room(ref message.position, ref message.rotation);
                string msg = JsonUtility.ToJson(message);
                await send_message(model_position_message_type, msg);
                sent = true;
@@ -718,10 +712,10 @@ public class Meeting : MonoBehaviour
 	    return false;
 
         WandPositionMessage message = new WandPositionMessage(left_wand, right_wand);
-	if (align != null)
+	if (room_coords != null)
 	{
-	    align.from_local(ref message.left_position, ref message.left_rotation);
-    	    align.from_local(ref message.right_position, ref message.right_rotation);
+	    room_coords.to_room(ref message.left_position, ref message.left_rotation);
+    	    room_coords.to_room(ref message.right_position, ref message.right_rotation);
         }
         string msg = JsonUtility.ToJson(message);
         await send_message(wand_position_message_type, msg);
@@ -883,105 +877,127 @@ public class WandPositionMessage
     }
 }
 
-class AlignCoordinates
+class RoomCoordinates
 {
-    public Matrix4x4 remote_to_local = Matrix4x4.identity;
-
-    public AlignCoordinates copy()
-    {
-        AlignCoordinates acopy = new AlignCoordinates();
-	acopy.remote_to_local = remote_to_local;
-	return acopy;
-    }
+    public Vector3 x1, x2;
+    public Matrix4x4 local_to_room = Matrix4x4.identity;
+    public Matrix4x4 room_to_local = Matrix4x4.identity;
     
-    public void to_local(ref Vector3 position, ref Quaternion rotation)
+    public void to_room(ref Vector3 position, ref Quaternion rotation)
     {
         Vector3 scale = Vector3.one;
-	Matrix4x4 new_location = remote_to_local * Matrix4x4.TRS(position, rotation, scale);
+	Matrix4x4 new_location = local_to_room * Matrix4x4.TRS(position, rotation, scale);
 	position = new_location.GetPosition();
 	rotation = new_location.rotation;
     }
 
-    public void from_local(ref Vector3 position, ref Quaternion rotation)
+    public void from_room(ref Vector3 position, ref Quaternion rotation)
     {
         Vector3 scale = Vector3.one;
-	Matrix4x4 new_location = remote_to_local.inverse * Matrix4x4.TRS(position, rotation, scale);
+	Matrix4x4 new_location = room_to_local * Matrix4x4.TRS(position, rotation, scale);
 	position = new_location.GetPosition();
 	rotation = new_location.rotation;
     }
 
-    public void update_alignment(Matrix4x4 motion)
+    public Matrix4x4 set_axis_markers(Vector3 x1, Vector3 x2)
     {
-        remote_to_local = motion * remote_to_local;
+        this.x1 = x1;
+	this.x2 = x2;
+	Vector3 xaxis = x2 - x1;
+	xaxis.y = 0f;
+	Quaternion rotation = Quaternion.FromToRotation(Vector3.right, xaxis);
+	Vector3 origin = 0.5f * (x1 + x2);
+        Vector3 scale = Vector3.one;
+	Matrix4x4 new_room_to_local = Matrix4x4.TRS(origin, rotation, scale);
+	Matrix4x4 motion = new_room_to_local * local_to_room;
+	room_to_local = new_room_to_local;
+	local_to_room = new_room_to_local.inverse;
+	return motion;
     }
 }
 
-class AlignWandsByHand
+class SetRoomCoordinates
 {
-    Transform wand;
-    bool button_pressed = false;
-    Matrix4x4 last_wand_pose;
-    bool have_last_pose = false;
+    Transform left_wand, right_wand;
+    Transform marker_parent;
+    GameObject coord_marker1_prefab, coord_marker2_prefab;
+    GameObject wand_marker1, wand_marker2;
+    GameObject placed_marker1, placed_marker2;
     
-    public void start_wand_alignment(InputAction.CallbackContext context,
-    	   			     Transform left_wand, Transform right_wand)
+    public SetRoomCoordinates(Transform left_wand, Transform right_wand, Transform marker_parent,
+    	   	              GameObject coord_marker1_prefab, GameObject coord_marker2_prefab)
     {
-    // In testing I could only get button release with InputAction Action Type of "pass through".
-    /*
-      if (context.started)
-      	    GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = "Align start";
-      if (context.canceled)
-//      	    GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = "Align cancel " + context.ReadValueAsButton() ;
-      	    GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = "Align cancel " + context.action.IsPressed() ;
+      this.left_wand = left_wand;
+      this.right_wand = right_wand;
+      this.marker_parent = marker_parent;
+      this.coord_marker1_prefab = coord_marker1_prefab;
+      this.coord_marker2_prefab = coord_marker2_prefab;
 
+      Vector3 position1 = right_wand.TransformPoint(new Vector3(0,1.1f,0));
+      wand_marker1 = UnityEngine.Object.Instantiate(coord_marker1_prefab, position1, Quaternion.identity);
+      wand_marker1.transform.SetParent(right_wand.parent);
+
+      Vector3 position2 = left_wand.TransformPoint(new Vector3(0,1.1f,0));
+      wand_marker2 = UnityEngine.Object.Instantiate(coord_marker2_prefab, position2, Quaternion.identity);
+      wand_marker2.transform.SetParent(left_wand.parent);
+    }
+    
+    public void show_current_coordinates(RoomCoordinates room_coords)
+    {
+      place_marker(1, room_coords.x1);
+      place_marker(2, room_coords.x2);
+    }
+
+    public void finished()
+    {
+      GameObject.Destroy(wand_marker1);
+      GameObject.Destroy(wand_marker2);
+      if (placed_marker1 != null)
+        GameObject.Destroy(placed_marker1);
+      if (placed_marker2 != null)
+        GameObject.Destroy(placed_marker2);
+    }
+
+    public bool drop_marker(InputAction.CallbackContext context)
+    {
       if (!context.performed)
-        return;
-    */
-    
-      bool left = context.control.device.usages.Contains(UnityEngine.InputSystem.CommonUsages.LeftHand);
-      wand = (left ? left_wand : right_wand);
-      bool prev_pressed = button_pressed;
-//      button_pressed = (context.action.ReadValue<float>() > 0);  // For analog button, e.g. grip, trigger
-      button_pressed = context.action.IsPressed();
-      GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = "Align pressed B " + button_pressed;
-      if (button_pressed != prev_pressed)
-          have_last_pose = false;
+        return false;
+      if (context.control.device.usages.Contains(UnityEngine.InputSystem.CommonUsages.RightHand))
+        place_marker(1, wand_marker1.transform.position);
+      else
+        place_marker(2, wand_marker2.transform.position);
+      return true;
     }
 
-    public bool adjust_alignment(AlignCoordinates align, ref Matrix4x4 motion)
+    void place_marker(int n, Vector3 position)
     {
-      if (!button_pressed)
-          return false;
-	  
-      Vector3 scale = Vector3.one;
-      Matrix4x4 pose = Matrix4x4.TRS(wand.position, wand.rotation, scale);
-      if (have_last_pose)
+      if (n == 1)
       {
-          motion = pose * last_wand_pose.inverse;
-	  motion = only_z_rotation(motion, wand.position);
-	  last_wand_pose = pose;
-	  align.update_alignment(motion);
-	  return true;
+        GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = "Will drop marker1 " + position;
+        if (placed_marker1 == null)
+	  placed_marker1 = UnityEngine.Object.Instantiate(coord_marker1_prefab, position, Quaternion.identity, marker_parent);
+	else
+	  placed_marker1.transform.position = position;
+        GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = "Dropped marker1 " + position;
       }
-      else
+      else if (n == 2)
       {
-          last_wand_pose = pose;
-	  have_last_pose = true;
-	  return false;
+        GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = "Will drop marker2 " + position;
+        if (placed_marker2 == null)
+	  placed_marker2 = UnityEngine.Object.Instantiate(coord_marker2_prefab, position, Quaternion.identity, marker_parent);
+	else
+	  placed_marker2.transform.position = position;
+        GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = "Dropped marker2 " + position;
       }
     }
-    
-    Matrix4x4 only_z_rotation(Matrix4x4 m, Vector3 center)
+
+    public bool marker_positions(ref Vector3 x1, ref Vector3 x2)
     {
-	Vector3 p = m.GetPosition();
-	Quaternion r = m.rotation;
-	float angle;
-	Vector3 axis;
-	r.ToAngleAxis(out angle, out axis);
-	Quaternion ry = Quaternion.AngleAxis(angle*axis.y, Vector3.up);
-	Vector3 py = p + r*center - ry*center;
-	Vector3 scale = Vector3.one;
-	return Matrix4x4.TRS(py, ry, scale);
+      if (placed_marker1 == null || placed_marker2 == null)
+        return false;
+      x1 = placed_marker1.transform.position;
+      x2 = placed_marker2.transform.position;
+      return true;
     }
 }
 
@@ -1010,10 +1026,4 @@ public class OpenModelMessage
 public class CloseModelMessage
 {
     public string model_id;
-}
-
-[Serializable]
-public class AlignmentMessage
-{
-    public string room_coordinates_id;
 }

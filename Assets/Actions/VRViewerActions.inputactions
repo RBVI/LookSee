@@ -52,9 +52,9 @@
                 },
                 {
                     "name": "AlignMeetingWands",
-                    "type": "PassThrough",
+                    "type": "Button",
                     "id": "b649af7f-a222-4bd2-b3ab-0b1ea84f64af",
-                    "expectedControlType": "",
+                    "expectedControlType": "Button",
                     "processors": "",
                     "interactions": "",
                     "initialStateCheck": false

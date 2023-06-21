@@ -23,7 +23,6 @@ public class ModelUI : MonoBehaviour
     public FileReceiver file_receiver;
     public Meeting meeting;
     public GameObject meeting_buttons, meeting_host_status, meeting_join_status;
-    public GameObject align_meeting_toggle;
     public GameObject meeting_keypad;		// For entering IP address
     public TMP_InputField ip_address;
     public OVRPassthroughLayer pass_through;
@@ -262,7 +261,7 @@ public class ModelUI : MonoBehaviour
   
   public void align_meeting(bool align)
   {
-    meeting.enable_hand_alignment(align);
+    meeting.set_room_coordinates(align);
   }
 
   public void show_error_message(string message)
@@ -298,7 +297,7 @@ public class ModelUI : MonoBehaviour
 public class LookSeeSettings
 {
   public string meeting_last_join_ip_address;
-  public List<MeetingCoordinateAlignment> meeting_alignments;
+  public List<MeetingCoordinates> meeting_coordinates;
 
   private string settings_path()
   {
@@ -326,32 +325,32 @@ public class LookSeeSettings
     File.WriteAllBytes(path, json_bytes);
   }
 
-  public void save_meeting_alignment(string room_id1, string room_id2, Matrix4x4 m)
+  public void save_meeting_coordinates(string room_coordinates_id, Vector3 x1, Vector3 x2)
   {
-    int i = meeting_alignment_index(room_id1, room_id2);
+    int i = meeting_coordinates_index(room_coordinates_id);
     if (i >= 0)
-      meeting_alignments.RemoveAt(i);
-    MeetingCoordinateAlignment align = new MeetingCoordinateAlignment();
-    align.room_id1 = room_id1;
-    align.room_id2 = room_id2;
-    align.alignment = m;
-    meeting_alignments.Add(align);
+      meeting_coordinates.RemoveAt(i);
+    MeetingCoordinates coords = new MeetingCoordinates();
+    coords.room_coordinates_id = room_coordinates_id;
+    coords.x1 = x1;
+    coords.x2 = x2;
+    meeting_coordinates.Add(coords);
   }
 
-  public bool find_meeting_alignment(string room_id1, string room_id2, ref Matrix4x4 m)
+  public bool find_meeting_coordinates(string room_coordinates_id, ref Vector3 x1, ref Vector3 x2)
   {
-    int i = meeting_alignment_index(room_id1, room_id2);
+    int i = meeting_coordinates_index(room_coordinates_id);
     if (i < 0)
       return false;
-    m = meeting_alignments[i].alignment;
+    x1 = meeting_coordinates[i].x1;
+    x2 = meeting_coordinates[i].x2;
     return true;
   }
 
-  private int meeting_alignment_index(string room_id1, string room_id2)
+  private int meeting_coordinates_index(string room_coordinates_id)
   {
-    for (int i = 0 ; i < meeting_alignments.Count ; ++i)
-      if (meeting_alignments[i].room_id1 == room_id1 &&
-          meeting_alignments[i].room_id2 == room_id2)
+    for (int i = 0 ; i < meeting_coordinates.Count ; ++i)
+      if (meeting_coordinates[i].room_coordinates_id == room_coordinates_id)
 	return i;
     return -1;
   }
@@ -359,9 +358,9 @@ public class LookSeeSettings
 }
 
 [Serializable]
-public class MeetingCoordinateAlignment
+public class MeetingCoordinates
 {
-  public string room_id1, room_id2;
-  public Matrix4x4 alignment;
+  public string room_coordinates_id;	// Unique identifier for room and VR coordinate system.
+  public Vector3 x1, x2;		// Points defining the room x-axis and center.
 }
 
