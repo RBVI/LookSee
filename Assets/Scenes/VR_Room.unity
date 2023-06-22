@@ -1062,6 +1062,8 @@ MonoBehaviour:
   meeting_buttons: {fileID: 2014055516}
   meeting_host_status: {fileID: 2141819153}
   meeting_join_status: {fileID: 785110393}
+  host_address_text: {fileID: 104588055}
+  join_address_text: {fileID: 1071670125}
   meeting_keypad: {fileID: 2012536401}
   ip_address: {fileID: 2129001173}
   pass_through: {fileID: 561149302}
@@ -3244,11 +3246,11 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   models: {fileID: 583134609}
-  host_address_text: {fileID: 104588055}
-  join_address_text: {fileID: 1071670125}
   left_wand: {fileID: 584099140}
   right_wand: {fileID: 331831298}
+  head: {fileID: 1805731924}
   ui: {fileID: 136512707}
+  face_prefab: {fileID: 7916591203717212670, guid: 6317fa2bfc19340c6a4300a86e305a05, type: 3}
   coord_marker1_prefab: {fileID: 449387852999925240, guid: 24be3d46949424df1a32191f08b4eda8, type: 3}
   coord_marker2_prefab: {fileID: 5177673698999375898, guid: 470bfc46f53a64d3db93736998a222ea, type: 3}
 --- !u!1 &584099139
@@ -5434,7 +5436,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: Meeting at 169.235.21.238
+  m_text: Meeting at 192.168.0.123
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}
   m_sharedMaterial: {fileID: 2180264, guid: 8f586378b4e144a9851e7b34d9b748ee, type: 2}

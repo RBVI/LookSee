@@ -23,6 +23,8 @@ public class ModelUI : MonoBehaviour
     public FileReceiver file_receiver;
     public Meeting meeting;
     public GameObject meeting_buttons, meeting_host_status, meeting_join_status;
+    public TextMeshProUGUI host_address_text;     // For reporting meeting IP address.
+    public TextMeshProUGUI join_address_text;     // For reporting meeting IP address.
     public GameObject meeting_keypad;		// For entering IP address
     public TMP_InputField ip_address;
     public OVRPassthroughLayer pass_through;
@@ -168,6 +170,12 @@ public class ModelUI : MonoBehaviour
   public void pass_through_toggled(bool pass)
   {
     pass_through.enabled = pass;
+    meeting.using_pass_through(pass);
+  }
+
+  public bool using_pass_through()
+  {
+    return pass_through.enabled;
   }
   
   public void open_new_toggled(bool open)
@@ -201,6 +209,7 @@ public class ModelUI : MonoBehaviour
   public void start_meeting(string button_name)
   {
     meeting.start_hosting();
+    host_address_text.text = "Meeting at " + meeting.get_local_ip_address();
     meeting_buttons.SetActive(false);
     meeting_host_status.SetActive(true);
     Vector3 dim = OVRManager.boundary.GetDimensions(OVRBoundary.BoundaryType.PlayArea);
@@ -222,10 +231,15 @@ public class ModelUI : MonoBehaviour
   public void leave_meeting(string button_name)
   {
     meeting.leave_meeting();
+    left_meeting();
+  }
+
+  public void left_meeting()
+  {
     meeting_join_status.SetActive(false);
     meeting_buttons.SetActive(true);
   }
-
+  
   public void meeting_address_keypad(string button_name)
   {
     string addr = ip_address.text;
@@ -249,6 +263,7 @@ public class ModelUI : MonoBehaviour
   {
     settings.meeting_last_join_ip_address = address;
     meeting_buttons.SetActive(false);
+    join_address_text.text = "Connected " + address;
     meeting_join_status.SetActive(true);
     GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = "Connected";
   }
@@ -256,6 +271,8 @@ public class ModelUI : MonoBehaviour
   public void report_join_failed(string error_message)
   {
     show_error_message(error_message);
+    meeting_buttons.SetActive(true);
+    meeting_join_status.SetActive(false);
     GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = error_message;
   }
   

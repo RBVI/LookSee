@@ -173,11 +173,12 @@ public class Meeting : MonoBehaviour
 {
     public LoadModels models;                     // Open models for adjusting positions.
     Dictionary<string, Position> model_positions; // Last sent model positions.
-    public TextMeshProUGUI host_address_text;     // For reporting meeting IP address.
-    public TextMeshProUGUI join_address_text;     // For reporting meeting IP address.
     public Transform left_wand, right_wand;       // For reporting positions to other participants.
+    public Transform head;			  // For reporting head position to others.
     public ModelUI ui;				  // Use ui.settings
 
+    private string looksee_version = "6";
+    private string minimum_compatible_version = "6";
     private int port = 21213;
     private string prefix = "LookSeeMeeting";
     private Socket listening_socket;                // Listen for new participants
@@ -188,7 +189,10 @@ public class Meeting : MonoBehaviour
     private const byte wand_position_message_type = 2;
     private const byte open_model_message_type = 3;
     private const byte close_model_message_type = 4;
-    private MeetingWands wands;				// Other participants' wands
+    private const byte version_message_type = 5;
+    private const byte error_message_type = 6;
+    private MeetingWands wands;				// Other participant's wands
+    public GameObject face_prefab;			// Other participant's face
     private RoomCoordinates room_coords;
     private SetRoomCoordinates set_room_coords;		// Place two markers to define x-axis.
     public GameObject coord_marker1_prefab, coord_marker2_prefab;
@@ -199,7 +203,6 @@ public class Meeting : MonoBehaviour
     {
         model_positions = new Dictionary<string, Position>();
 	meeting_models = new Dictionary<string, Model>();
-	join_address_text.text = "Connected " + ui.settings.meeting_last_join_ip_address;
     }
     
     async void Update()
@@ -220,7 +223,6 @@ public class Meeting : MonoBehaviour
 
     public void start_hosting()
     {
-        host_address_text.text = "Meeting at " + get_local_ip_address();
         start_listening();
         GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = "Started listening for meeting";
     }        
@@ -231,6 +233,11 @@ public class Meeting : MonoBehaviour
 	leave_meeting();
     }        
 
+    bool hosting()
+    {
+        return (listening_socket != null);
+    }
+    
     void OnApplicationQuit()
     {
         stop_hosting();
@@ -372,8 +379,10 @@ public class Meeting : MonoBehaviour
 	load_room_coordinates();
         peer = new NetworkStream(socket, true);
         await send_prefix();
+	await send_version();
 	await send_newly_opened_models();
         await process_messages();
+	ui.left_meeting();
     }
 
     public void leave_meeting()
@@ -405,7 +414,8 @@ public class Meeting : MonoBehaviour
 
             peer = new NetworkStream(socket, true);
             await send_prefix();
-            return await process_messages();
+	    await send_version();
+	    return await process_messages();
         }
         catch (Exception e)
         {
@@ -502,6 +512,10 @@ public class Meeting : MonoBehaviour
             await process_open_model_message(json);
         else if (message_type == close_model_message_type)
             process_close_model_message(json);
+        else if (message_type == version_message_type)
+            await process_version_message(json);
+        else if (message_type == error_message_type)
+            process_error_message(json);
 	else
 	    return false;
 	return true;
@@ -549,12 +563,19 @@ public class Meeting : MonoBehaviour
 	{
 	   room_coords.from_room(ref m.left_position, ref m.left_rotation);
 	   room_coords.from_room(ref m.right_position, ref m.right_rotation);
+	   room_coords.from_room(ref m.head_position, ref m.head_rotation);
         }
 	if (wands == null)
-	    wands = new MeetingWands();
+	    wands = new MeetingWands(!ui.using_pass_through(), face_prefab);
 	wands.set_wand_positions(m);
     }
 
+    public void using_pass_through(bool pass)
+    {
+	if (wands != null)
+	  wands.show_head(!pass);
+    }
+    
     async private Task<string> process_open_model_message(string json)
     {
         GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = "Got open model message " + json.Length;
@@ -603,6 +624,55 @@ public class Meeting : MonoBehaviour
             }
         }
         throw new Exception("No network adapters with an IPv4 address in the system!");
+    }
+
+    async private Task<bool> send_version()
+    {
+        if (peer == null)
+            return false;
+
+        VersionMessage message = new VersionMessage();
+	message.version = looksee_version;
+        string msg = JsonUtility.ToJson(message);
+        await send_message(version_message_type, msg);
+	return true;
+    }
+
+    async private Task<bool> process_version_message(string json)
+    {
+        VersionMessage m = JsonUtility.FromJson<VersionMessage>(json);
+        if (m.version.CompareTo(minimum_compatible_version) < 0)
+	{
+	   if (hosting())
+	   {
+	      await send_error_message("Joining this meeting requires LookSee version >= "
+	    	                     + minimum_compatible_version
+				     + ". You are using version " + m.version);
+           }
+	   else
+	   {
+	      ui.report_join_failed("Meeting host LookSee version " + m.version
+	      		            + " is too old to work with this version " + looksee_version
+				    + ". Host must use Looksee version >= " + minimum_compatible_version);
+	   }
+	   leave_meeting();
+	}
+        return true;
+    }
+
+    async private Task<bool> send_error_message(string text)
+    {
+        ErrorMessage message = new ErrorMessage();
+        message.error = text;
+        string msg = JsonUtility.ToJson(message);
+        await send_message(error_message_type, msg);
+        return true;
+    }
+
+    private void process_error_message(string json)
+    {
+        ErrorMessage m = JsonUtility.FromJson<ErrorMessage>(json);
+	ui.show_error_message(m.error);
     }
 
     async private Task<bool> send_new_model_positions()
@@ -711,11 +781,12 @@ public class Meeting : MonoBehaviour
 	if (waiting_to_send_message())
 	    return false;
 
-        WandPositionMessage message = new WandPositionMessage(left_wand, right_wand);
+        WandPositionMessage message = new WandPositionMessage(left_wand, right_wand, head);
 	if (room_coords != null)
 	{
 	    room_coords.to_room(ref message.left_position, ref message.left_rotation);
     	    room_coords.to_room(ref message.right_position, ref message.right_rotation);
+       	    room_coords.to_room(ref message.head_position, ref message.head_rotation);
         }
         string msg = JsonUtility.ToJson(message);
         await send_message(wand_position_message_type, msg);
@@ -828,28 +899,39 @@ class Position
 // Cylinders depicting other participant's wands.
 class MeetingWands
 {
-    public GameObject left_wand, right_wand;
+    public GameObject left_wand, right_wand, head;
     private Vector3 wand_scale = new Vector3(0.02f, 0.2f, 0.02f);
+    private Vector3 head_scale = new Vector3(0.2f, 0.2f, 0.03f);
+    private GameObject face_prefab;
     
-    public MeetingWands()
+    public MeetingWands(bool show_head, GameObject face_prefab)
     {
         left_wand = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
         left_wand.transform.localScale = wand_scale;
         right_wand = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
         right_wand.transform.localScale = wand_scale;
+	this.face_prefab = face_prefab;
+	this.show_head(show_head);
     }
 
+    public void show_head(bool show)
+    {
+      if (show && head == null)
+        head = UnityEngine.Object.Instantiate(face_prefab);
+      else if (!show && head != null)
+      {
+        UnityEngine.Object.Destroy(head);
+        head = null;
+      }
+    }
+    
     public void remove_wand_depictions()
     {
 	UnityEngine.Object.Destroy(left_wand);
 	left_wand = null;
 	UnityEngine.Object.Destroy(right_wand);
 	right_wand = null;
-    }
-    
-    public WandPositionMessage wand_positions()
-    {
-        return new WandPositionMessage(left_wand.transform, right_wand.transform);
+	show_head(false);
     }
     
     public void set_wand_positions(WandPositionMessage msg)
@@ -859,21 +941,29 @@ class MeetingWands
         ltf.rotation = msg.left_rotation;
         rtf.position = msg.right_position;
         rtf.rotation = msg.right_rotation;
+	if (head != null)
+	{
+	  Transform htf = head.transform;
+	  htf.position = msg.head_position;
+  	  htf.rotation = msg.head_rotation;
+	}
     }
 }
 
 [Serializable]
 public class WandPositionMessage
 {
-    public Vector3 left_position, right_position;
-    public Quaternion left_rotation, right_rotation;
+    public Vector3 left_position, right_position, head_position;
+    public Quaternion left_rotation, right_rotation, head_rotation;
 
-    public WandPositionMessage(Transform left, Transform right)
+    public WandPositionMessage(Transform left, Transform right, Transform head)
     {
         left_position = left.position;
         left_rotation = left.rotation;
         right_position = right.position;
         right_rotation = right.rotation;
+	head_position = head.position;
+	head_rotation = head.rotation;
     }
 }
 
@@ -1026,4 +1116,16 @@ public class OpenModelMessage
 public class CloseModelMessage
 {
     public string model_id;
+}
+
+[Serializable]
+public class VersionMessage
+{
+    public string version;
+}
+
+[Serializable]
+public class ErrorMessage
+{
+    public string error;
 }
