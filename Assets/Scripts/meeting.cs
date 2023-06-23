@@ -182,8 +182,7 @@ public class Meeting : MonoBehaviour
     private int port = 21213;
     private string prefix = "LookSeeMeeting";
     private Socket listening_socket;                // Listen for new participants
-    private bool keep_listening = true;
-    private NetworkStream peer;                 // Connection to other meeting participant.
+    private List<Peer> peers = new List<Peer>();    // Connection to host or host to all participants
     private int frame = 0;
     private const byte model_position_message_type = 1;
     private const byte wand_position_message_type = 2;
@@ -207,7 +206,7 @@ public class Meeting : MonoBehaviour
     
     async void Update()
     {
-	if (peer == null)
+	if (peers.Count == 0)
 	    return;
 	    
         frame += 1;
@@ -330,10 +329,8 @@ public class Meeting : MonoBehaviour
 	transform.rotation = new_location.rotation;
     }
     
-    async public void start_listening()
+    public void start_listening()
     {
-        keep_listening = true;
-
         // Set up a local socket for listening
         listening_socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
 
@@ -350,8 +347,7 @@ public class Meeting : MonoBehaviour
 
 	load_room_coordinates();
 
-        while (keep_listening)
-            await handle_connection();
+	Invoke("accept_connections", 0f);
     }
 
     async public void join_meeting(string ip_address)
@@ -377,21 +373,29 @@ public class Meeting : MonoBehaviour
 	}
 	ui.report_join_success(ip_address);
 	load_room_coordinates();
-        peer = new NetworkStream(socket, true);
-        await send_prefix();
-	await send_version();
-	await send_newly_opened_models();
-        await process_messages();
-	ui.left_meeting();
+	Peer peer = new Peer(socket);
+	peers.Add(peer);
+	try
+	{
+          await send_prefix(peer);
+	  await send_version(peer);
+	  await send_all_open_models(peer);
+          await process_messages(peer);
+	}
+	finally
+	{
+	  peers.Remove(peer);
+	  peer.close();
+	  ui.left_meeting();
+	}
     }
 
     public void leave_meeting()
     {
-        if (peer == null)
-	    return;
+        foreach(Peer peer in peers)
+	    peer.close();
+	peers.Clear();
 
-        peer.Close();
-        peer = null;
 	model_positions.Clear();
 	meeting_models.Clear();
 	blocked_message_send_count = 0;
@@ -402,30 +406,55 @@ public class Meeting : MonoBehaviour
         }
     }
     
-    async public Task<int> handle_connection()
+    async public Task<int> accept_connections()
     {
-        // This only handles one connection at a time and returns when the connection is closed.
-        
+        // Accept a connection when one is made and process messages.
+	// When a connected is accepted another task to accept more connections is started.
+
+	Socket socket;
         try
         {
-            Socket socket = await listening_socket.AcceptAsync();
-        GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text += "\r\nSocket connection accepted";
-            Debug.Log("Socket connection accepted.");
+            socket = await listening_socket.AcceptAsync();
+	}
+        catch (Exception e)
+	{
+             GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = "Error accepting socket connection: " + e.Message;
+	     return 0;
+	}
 
-            peer = new NetworkStream(socket, true);
-            await send_prefix();
-	    await send_version();
-	    return await process_messages();
+	Invoke("accept_connections", 0f);	// Accept more connections in a new task.
+
+	Peer peer = new Peer(socket);
+        await send_prefix(peer);
+        await send_version(peer);
+
+	if (peers.Count >= 1)
+	{
+            GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = "Third participant tried to connect";
+	    await send_error_message("Meetings currently only allow 2 persons.", peer);
+	    peer.close();
+	    return 0;
+	}
+
+	try
+	{
+	    peers.Add(peer);
+	    return await process_messages(peer);
         }
         catch (Exception e)
         {
-            // report errors and keep listening.
-            Debug.Log("Network Error: " + e.Message);
+            GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = "Error processing participant messages: " + e.Message;
         }
+	finally
+	{
+	    peers.Remove(peer);
+	    peer.close();
+	}
+	
         return 0;
     }
 
-    async private Task<int> process_messages()
+    async private Task<int> process_messages(Peer peer)
     {
         // Read and process messages from the remote client until the socket is closed.
         int msg_count = 0;
@@ -438,7 +467,7 @@ public class Meeting : MonoBehaviour
                 byte [] msg = await read_message(peer);
                 if (msg.Length == 0)
                   break;
-                await process_message(msg);
+                await process_message(msg, peer);
                 msg_count += 1;
 //		if (msg_count % 200 == 0)
 //                GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = "Processed message " + msg_count;
@@ -448,18 +477,18 @@ public class Meeting : MonoBehaviour
         return msg_count;
     }
 
-    async private Task send_prefix()
+    async private Task send_prefix(Peer peer)
     {
         byte[] prefix_bytes = System.Text.Encoding.UTF8.GetBytes(prefix);
-        await peer.WriteAsync(prefix_bytes, 0, prefix_bytes.Length);
+        await peer.stream.WriteAsync(prefix_bytes, 0, prefix_bytes.Length);
     }
     
-    async private Task<bool> verify_prefix(NetworkStream stream)
+    async private Task<bool> verify_prefix(Peer peer)
     {
         byte[] prefix_bytes = System.Text.Encoding.UTF8.GetBytes(prefix);
         if (prefix_bytes.Length == 0)
             return true;
-        byte [] received_prefix = await read_bytes(stream, prefix_bytes.Length);
+        byte [] received_prefix = await read_bytes(peer, prefix_bytes.Length);
         return equal_byte_arrays(prefix_bytes, received_prefix);
     }
 
@@ -468,20 +497,21 @@ public class Meeting : MonoBehaviour
         return a1.Length == a2.Length && a1.SequenceEqual(a2);
     }
 
-    async private Task<byte[]> read_message(NetworkStream stream)
+    async private Task<byte[]> read_message(Peer peer)
     {
-        byte [] msg_size_bytes = await read_bytes(stream, 4);
+        byte [] msg_size_bytes = await read_bytes(peer, 4);
         if (msg_size_bytes.Length != 4)
            return new byte[0];
         int msg_size = BitConverter.ToInt32(msg_size_bytes, 0);
-        byte [] msg_bytes = await read_bytes(stream, msg_size);
+        byte [] msg_bytes = await read_bytes(peer, msg_size);
         return msg_bytes;
     }
 
-    async private Task<byte[]> read_bytes(NetworkStream stream, int nbytes)
+    async private Task<byte[]> read_bytes(Peer peer, int nbytes)
     {
         byte [] buffer = new byte[nbytes];
         int offset = 0;
+	NetworkStream stream = peer.stream;
         while (offset < nbytes)
         {
             int count;
@@ -499,7 +529,7 @@ public class Meeting : MonoBehaviour
         return buffer;
     }
 
-    async private Task<bool> process_message(byte[] msg)
+    async private Task<bool> process_message(byte[] msg, Peer peer)
     {
         // GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text += "\r\nGot message type" + msg[0];
         string json = Encoding.UTF8.GetString(msg, 1, msg.Length-1);
@@ -513,7 +543,7 @@ public class Meeting : MonoBehaviour
         else if (message_type == close_model_message_type)
             process_close_model_message(json);
         else if (message_type == version_message_type)
-            await process_version_message(json);
+            await process_version_message(json, peer);
         else if (message_type == error_message_type)
             process_error_message(json);
 	else
@@ -608,7 +638,6 @@ public class Meeting : MonoBehaviour
         if (listening_socket == null)
             return;
 
-        keep_listening = false;
         listening_socket.Close();
         listening_socket = null;
     }
@@ -626,19 +655,16 @@ public class Meeting : MonoBehaviour
         throw new Exception("No network adapters with an IPv4 address in the system!");
     }
 
-    async private Task<bool> send_version()
+    async private Task<bool> send_version(Peer peer)
     {
-        if (peer == null)
-            return false;
-
         VersionMessage message = new VersionMessage();
 	message.version = looksee_version;
         string msg = JsonUtility.ToJson(message);
-        await send_message(version_message_type, msg);
+        await send_message(version_message_type, msg, peer);
 	return true;
     }
 
-    async private Task<bool> process_version_message(string json)
+    async private Task<bool> process_version_message(string json, Peer peer)
     {
         VersionMessage m = JsonUtility.FromJson<VersionMessage>(json);
         if (m.version.CompareTo(minimum_compatible_version) < 0)
@@ -647,7 +673,7 @@ public class Meeting : MonoBehaviour
 	   {
 	      await send_error_message("Joining this meeting requires LookSee version >= "
 	    	                     + minimum_compatible_version
-				     + ". You are using version " + m.version);
+				     + ". You are using version " + m.version, peer);
            }
 	   else
 	   {
@@ -660,26 +686,24 @@ public class Meeting : MonoBehaviour
         return true;
     }
 
-    async private Task<bool> send_error_message(string text)
+    async private Task<bool> send_error_message(string text, Peer peer)
     {
         ErrorMessage message = new ErrorMessage();
         message.error = text;
         string msg = JsonUtility.ToJson(message);
-        await send_message(error_message_type, msg);
+        await send_message(error_message_type, msg, peer);
         return true;
     }
 
     private void process_error_message(string json)
     {
         ErrorMessage m = JsonUtility.FromJson<ErrorMessage>(json);
+        GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = "Got error message " + m.error;
 	ui.show_error_message(m.error);
     }
 
     async private Task<bool> send_new_model_positions()
     {
-        if (peer == null)
-            return false;
-
 //	if (waiting_to_send_message())
 //	    return false;
 
@@ -704,7 +728,7 @@ public class Meeting : MonoBehaviour
 	       if (room_coords != null)
 	           room_coords.to_room(ref message.position, ref message.rotation);
                string msg = JsonUtility.ToJson(message);
-               await send_message(model_position_message_type, msg);
+               await send_message_to_all(model_position_message_type, msg);
                sent = true;
            }
         }
@@ -712,7 +736,43 @@ public class Meeting : MonoBehaviour
         return sent;
     }
 
-    async private Task<int> send_message(byte message_type, string msg)
+    async private Task<int> send_message(byte message_type, string msg, Peer peer)
+    {
+	byte[] msg_chunk = message_bytes(message_type, msg);
+        blocked_message_send_count += 1;
+	try
+	{
+	    await peer.stream.WriteAsync(msg_chunk, 0, msg_chunk.Length);
+        }
+	finally
+	{
+            blocked_message_send_count -= 1;
+	}
+
+        return msg_chunk.Length;
+    }
+
+    async private Task<int> send_message_to_all(byte message_type, string msg)
+    {
+	byte[] msg_chunk = message_bytes(message_type, msg);
+	foreach (Peer peer in peers)
+	{
+	  // TODO: These should be awaited as a group
+	  blocked_message_send_count += 1;
+	  try
+	  {
+	    await peer.stream.WriteAsync(msg_chunk, 0, msg_chunk.Length);
+          }
+	  finally
+	  {
+            blocked_message_send_count -= 1;
+	  }
+	}
+	
+        return msg_chunk.Length;
+    }
+
+    private byte[] message_bytes(byte message_type, string msg)
     {
         byte[] msg_bytes = System.Text.Encoding.UTF8.GetBytes(msg);
         int chunk_size = msg_bytes.Length + 1;  // Add one byte for message type
@@ -725,20 +785,9 @@ public class Meeting : MonoBehaviour
         msg_chunk[message_type_offset] = message_type;
         int message_offset = chunk_size_bytes.Length+1;
         msg_bytes.CopyTo(msg_chunk, message_offset);
-
-        blocked_message_send_count += 1;
-	try
-	{
-	    await peer.WriteAsync(msg_chunk, 0, msg_chunk.Length);
-        }
-	finally
-	{
-            blocked_message_send_count -= 1;
-	}
-
-        return msg_chunk.Length;
+	return msg_chunk;
     }
-
+    
     private bool waiting_to_send_message()
     {
         return blocked_message_send_count > 0;
@@ -775,9 +824,6 @@ public class Meeting : MonoBehaviour
 
     async private Task<bool> send_wand_positions()
     {
-        if (peer == null)
-            return false;
-
 	if (waiting_to_send_message())
 	    return false;
 
@@ -789,7 +835,7 @@ public class Meeting : MonoBehaviour
        	    room_coords.to_room(ref message.head_position, ref message.head_rotation);
         }
         string msg = JsonUtility.ToJson(message);
-        await send_message(wand_position_message_type, msg);
+        await send_message_to_all(wand_position_message_type, msg);
         return true;
     }
 
@@ -814,12 +860,47 @@ public class Meeting : MonoBehaviour
 	      msg.rotation = t.rotation;
 	      msg.scale = t.localScale.x;
 	      string message = JsonUtility.ToJson(msg);
-	      await send_message(open_model_message_type, message);
+	      await send_message_to_all(open_model_message_type, message);
 	      count += 1;
               GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text += "\r\nSent open model message " + model_name;
 	  }
         }
 	return count;
+    }
+
+    async private Task<int> send_all_open_models(Peer peer)
+    {
+	int count = 0;
+        foreach (Model m in models.open_models.models)
+	{
+	  if (meeting_models.ContainsValue(m))
+	  {
+	    await send_model(m, peer);
+            count += 1;
+	  }
+        }
+	return count;
+    }
+
+    async private Task<bool> send_model(Model m, Peer peer)
+    {
+	string model_name = m.model_object.name;
+	GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = "Sending open model message " + model_name;
+	string model_id = new_model_id();
+	meeting_models.Add(model_id, m);
+	OpenModelMessage msg = new OpenModelMessage();
+	msg.model_id = model_id;
+	msg.model_name = model_name;
+	byte[] gltf_data = File.ReadAllBytes(m.path);
+	msg.set_gltf_data(gltf_data);
+	Transform t = m.model_object.transform;
+	msg.position = t.position;
+	msg.rotation = t.rotation;
+	msg.scale = t.localScale.x;
+	string message = JsonUtility.ToJson(msg);
+	await send_message(open_model_message_type, message, peer);
+	GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text += "\r\nSent open model message " + model_name;
+	return true;
     }
 
     private string new_model_id()
@@ -845,7 +926,7 @@ public class Meeting : MonoBehaviour
 	      CloseModelMessage msg = new CloseModelMessage();
 	      msg.model_id = model_id;
 	      string message = JsonUtility.ToJson(msg);
-	      await send_message(close_model_message_type, message);
+	      await send_message_to_all(close_model_message_type, message);
       	      count += 1;
               // GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text += "\r\nSent close model message " + model_id;
 	  }
@@ -1128,4 +1209,20 @@ public class VersionMessage
 public class ErrorMessage
 {
     public string error;
+}
+
+// Connection to another meeting participant.
+public class Peer
+{
+    public NetworkStream stream;
+
+    public Peer(Socket socket)
+    {
+      stream = new NetworkStream(socket, true);
+    }
+
+    public void close()
+    {
+      stream.Close();
+    }
 }
