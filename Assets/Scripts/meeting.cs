@@ -195,7 +195,6 @@ public class Meeting : MonoBehaviour
     private RoomCoordinates room_coords;
     private SetRoomCoordinates set_room_coords;		// Place two markers to define x-axis.
     public GameObject coord_marker1_prefab, coord_marker2_prefab;
-    private int blocked_message_send_count = 0;
     private Dictionary<string, Model> meeting_models;   // Map model identifier to Model
 
     void Start()
@@ -204,20 +203,17 @@ public class Meeting : MonoBehaviour
 	meeting_models = new Dictionary<string, Model>();
     }
     
-    async void Update()
+    void Update()
     {
 	if (peers.Count == 0)
 	    return;
 	    
         frame += 1;
-	// TODO: Count how many WriteAsync tasks have not completed and if it gets high (100?)
-	// then stop trying to send more until the number goes back down (0?).
-	// Otherwise we get thousands of blocked writes when another participant takes off
-	// headset and it sleeps.
-        await send_new_model_positions();
-        await send_wand_positions();
-	await send_newly_opened_models();
-	await send_newly_closed_models();
+
+        send_new_model_positions();
+        send_wand_positions();
+	send_newly_opened_models();
+	send_newly_closed_models();
     }
 
     public void start_hosting()
@@ -377,9 +373,9 @@ public class Meeting : MonoBehaviour
 	peers.Add(peer);
 	try
 	{
-          await send_prefix(peer);
-	  await send_version(peer);
-	  await send_all_open_models(peer);
+          send_prefix(peer);
+	  send_version(peer);
+	  send_all_open_models(peer);
           await process_messages(peer);
 	}
 	finally
@@ -398,7 +394,6 @@ public class Meeting : MonoBehaviour
 
 	model_positions.Clear();
 	meeting_models.Clear();
-	blocked_message_send_count = 0;
 	if (wands != null)
 	{
 	   wands.remove_wand_depictions();
@@ -425,13 +420,13 @@ public class Meeting : MonoBehaviour
 	Invoke("accept_connections", 0f);	// Accept more connections in a new task.
 
 	Peer peer = new Peer(socket);
-        await send_prefix(peer);
-        await send_version(peer);
+        send_prefix(peer);
+        send_version(peer);
 
 	if (peers.Count >= 1)
 	{
             GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = "Third participant tried to connect";
-	    await send_error_message("Meetings currently only allow 2 persons.", peer);
+	    send_error_message("Meetings currently only allow 2 persons.", peer);
 	    peer.close();
 	    return 0;
 	}
@@ -477,10 +472,10 @@ public class Meeting : MonoBehaviour
         return msg_count;
     }
 
-    async private Task send_prefix(Peer peer)
+    private void send_prefix(Peer peer)
     {
         byte[] prefix_bytes = System.Text.Encoding.UTF8.GetBytes(prefix);
-        await peer.stream.WriteAsync(prefix_bytes, 0, prefix_bytes.Length);
+        peer.send_bytes(prefix_bytes);
     }
     
     async private Task<bool> verify_prefix(Peer peer)
@@ -543,7 +538,7 @@ public class Meeting : MonoBehaviour
         else if (message_type == close_model_message_type)
             process_close_model_message(json);
         else if (message_type == version_message_type)
-            await process_version_message(json, peer);
+            process_version_message(json, peer);
         else if (message_type == error_message_type)
             process_error_message(json);
 	else
@@ -655,25 +650,24 @@ public class Meeting : MonoBehaviour
         throw new Exception("No network adapters with an IPv4 address in the system!");
     }
 
-    async private Task<bool> send_version(Peer peer)
+    private void send_version(Peer peer)
     {
         VersionMessage message = new VersionMessage();
 	message.version = looksee_version;
         string msg = JsonUtility.ToJson(message);
-        await send_message(version_message_type, msg, peer);
-	return true;
+        send_message(version_message_type, msg, peer);
     }
 
-    async private Task<bool> process_version_message(string json, Peer peer)
+    private void process_version_message(string json, Peer peer)
     {
         VersionMessage m = JsonUtility.FromJson<VersionMessage>(json);
         if (m.version.CompareTo(minimum_compatible_version) < 0)
 	{
 	   if (hosting())
 	   {
-	      await send_error_message("Joining this meeting requires LookSee version >= "
-	    	                     + minimum_compatible_version
-				     + ". You are using version " + m.version, peer);
+	      send_error_message("Joining this meeting requires LookSee version >= "
+	                         + minimum_compatible_version
+			         + ". You are using version " + m.version, peer);
            }
 	   else
 	   {
@@ -683,16 +677,14 @@ public class Meeting : MonoBehaviour
 	   }
 	   leave_meeting();
 	}
-        return true;
     }
 
-    async private Task<bool> send_error_message(string text, Peer peer)
+    private void send_error_message(string text, Peer peer)
     {
         ErrorMessage message = new ErrorMessage();
         message.error = text;
         string msg = JsonUtility.ToJson(message);
-        await send_message(error_message_type, msg, peer);
-        return true;
+        send_message(error_message_type, msg, peer);
     }
 
     private void process_error_message(string json)
@@ -702,74 +694,43 @@ public class Meeting : MonoBehaviour
 	ui.show_error_message(m.error);
     }
 
-    async private Task<bool> send_new_model_positions()
+    private int send_new_model_positions()
     {
-//	if (waiting_to_send_message())
-//	    return false;
-
-        bool sent = false;
+        int count = 0;
         foreach (var item in meeting_models)
         {
 	   string model_id = item.Key;
            if (position_changed(model_id))
            {
-	   	if (waiting_to_send_message())
-		{
-		    GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = "Could not send model motion, write is blocked " + blocked_message_send_count;
-		    continue;
-		}
-		else
-		{
-		    GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = "Sending model motion " + frame;
-		}
                record_latest_position(model_id);
 	       Model m = item.Value;
                ModelPositionMessage message = new ModelPositionMessage(model_id, m.model_object.transform);
 	       if (room_coords != null)
 	           room_coords.to_room(ref message.position, ref message.rotation);
                string msg = JsonUtility.ToJson(message);
-               await send_message_to_all(model_position_message_type, msg);
-               sent = true;
+               send_message_to_all(model_position_message_type, msg);
+               count += 1;
            }
         }
         
-        return sent;
+        return count;
     }
 
-    async private Task<int> send_message(byte message_type, string msg, Peer peer)
+    private void send_message(byte message_type, string msg, Peer peer)
     {
 	byte[] msg_chunk = message_bytes(message_type, msg);
-        blocked_message_send_count += 1;
-	try
-	{
-	    await peer.stream.WriteAsync(msg_chunk, 0, msg_chunk.Length);
-        }
-	finally
-	{
-            blocked_message_send_count -= 1;
-	}
-
-        return msg_chunk.Length;
+	peer.send_bytes(msg_chunk);
     }
 
-    async private Task<int> send_message_to_all(byte message_type, string msg)
+    private void send_message_to_all(byte message_type, string msg, bool allow_drop = false)
     {
 	byte[] msg_chunk = message_bytes(message_type, msg);
 	foreach (Peer peer in peers)
 	{
-	  // TODO: These should be awaited as a group
-	  blocked_message_send_count += 1;
-	  try
-	  {
-	    await peer.stream.WriteAsync(msg_chunk, 0, msg_chunk.Length);
-          }
-	  finally
-	  {
-            blocked_message_send_count -= 1;
-	  }
+	  bool drop = (allow_drop && peer.send_queue_length() > 5);
+	  if (!drop)
+	    peer.send_bytes(msg_chunk);
 	}
-	
-        return msg_chunk.Length;
     }
 
     private byte[] message_bytes(byte message_type, string msg)
@@ -786,11 +747,6 @@ public class Meeting : MonoBehaviour
         int message_offset = chunk_size_bytes.Length+1;
         msg_bytes.CopyTo(msg_chunk, message_offset);
 	return msg_chunk;
-    }
-    
-    private bool waiting_to_send_message()
-    {
-        return blocked_message_send_count > 0;
     }
 	
     private bool position_changed(string model_id)
@@ -822,11 +778,8 @@ public class Meeting : MonoBehaviour
           record_latest_position(model_id);
     }
 
-    async private Task<bool> send_wand_positions()
+    private void send_wand_positions()
     {
-	if (waiting_to_send_message())
-	    return false;
-
         WandPositionMessage message = new WandPositionMessage(left_wand, right_wand, head);
 	if (room_coords != null)
 	{
@@ -835,11 +788,10 @@ public class Meeting : MonoBehaviour
        	    room_coords.to_room(ref message.head_position, ref message.head_rotation);
         }
         string msg = JsonUtility.ToJson(message);
-        await send_message_to_all(wand_position_message_type, msg);
-        return true;
+        send_message_to_all(wand_position_message_type, msg, true);
     }
 
-    async private Task<int> send_newly_opened_models()
+    private int send_newly_opened_models()
     {
 	int count = 0;
         foreach (Model m in models.open_models.models)
@@ -860,7 +812,7 @@ public class Meeting : MonoBehaviour
 	      msg.rotation = t.rotation;
 	      msg.scale = t.localScale.x;
 	      string message = JsonUtility.ToJson(msg);
-	      await send_message_to_all(open_model_message_type, message);
+	      send_message_to_all(open_model_message_type, message);
 	      count += 1;
               GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text += "\r\nSent open model message " + model_name;
 	  }
@@ -868,21 +820,21 @@ public class Meeting : MonoBehaviour
 	return count;
     }
 
-    async private Task<int> send_all_open_models(Peer peer)
+    private int send_all_open_models(Peer peer)
     {
 	int count = 0;
         foreach (Model m in models.open_models.models)
 	{
 	  if (meeting_models.ContainsValue(m))
 	  {
-	    await send_model(m, peer);
+	    send_model(m, peer);
             count += 1;
 	  }
         }
 	return count;
     }
 
-    async private Task<bool> send_model(Model m, Peer peer)
+    private void send_model(Model m, Peer peer)
     {
 	string model_name = m.model_object.name;
 	GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = "Sending open model message " + model_name;
@@ -898,9 +850,8 @@ public class Meeting : MonoBehaviour
 	msg.rotation = t.rotation;
 	msg.scale = t.localScale.x;
 	string message = JsonUtility.ToJson(msg);
-	await send_message(open_model_message_type, message, peer);
+	send_message(open_model_message_type, message, peer);
 	GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text += "\r\nSent open model message " + model_name;
-	return true;
     }
 
     private string new_model_id()
@@ -912,7 +863,7 @@ public class Meeting : MonoBehaviour
        return model_id;
     }
     
-    async private Task<int> send_newly_closed_models()
+    private int send_newly_closed_models()
     {
 	int count = 0;
         foreach (var item in meeting_models)
@@ -926,7 +877,7 @@ public class Meeting : MonoBehaviour
 	      CloseModelMessage msg = new CloseModelMessage();
 	      msg.model_id = model_id;
 	      string message = JsonUtility.ToJson(msg);
-	      await send_message_to_all(close_model_message_type, message);
+	      send_message_to_all(close_model_message_type, message);
       	      count += 1;
               // GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text += "\r\nSent close model message " + model_id;
 	  }
@@ -1215,6 +1166,8 @@ public class ErrorMessage
 public class Peer
 {
     public NetworkStream stream;
+    private Queue<byte[]> send_message_queue = new Queue<byte[]>();
+    private bool have_send_task = false;	// Have at most 1 task send messages.
 
     public Peer(Socket socket)
     {
@@ -1224,5 +1177,37 @@ public class Peer
     public void close()
     {
       stream.Close();
+    }
+
+    public void send_bytes(byte[] msg)
+    {
+	send_message_queue.Enqueue(msg);
+	if (!have_send_task)
+	  _ = send_from_queue();	// Start async without waiting.
+    }
+
+    async private Task<int> send_from_queue()
+    {
+      have_send_task = true;
+      int count = 0;
+      try
+      {
+        while (send_message_queue.Count > 0)
+        {
+          byte[] msg = send_message_queue.Dequeue();
+          await stream.WriteAsync(msg, 0, msg.Length);
+	  count += 1;
+        }
+      }
+      finally
+      {
+        have_send_task = false;
+      }
+      return count;
+    }
+
+    public int send_queue_length()
+    {
+      return send_message_queue.Count;
     }
 }
