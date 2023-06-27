@@ -173,6 +173,7 @@ public class Meeting : MonoBehaviour
 {
     public LoadModels models;                     // Open models for adjusting positions.
     Dictionary<string, Position> model_positions; // Last sent model positions.
+    Dictionary<string, bool> model_shown;	  // Last sent model show/hide state.
     public Transform left_wand, right_wand;       // For reporting positions to other participants.
     public Transform head;			  // For reporting head position to others.
     public ModelUI ui;				  // Use ui.settings
@@ -181,6 +182,7 @@ public class Meeting : MonoBehaviour
     private string minimum_compatible_version = "6";
     private int port = 21213;
     private string prefix = "LookSeeMeeting";
+    private int max_participants = 100;
     private Socket listening_socket;                // Listen for new participants
     private List<Peer> peers = new List<Peer>();    // Connection to host or host to all participants
     private int frame = 0;
@@ -190,7 +192,8 @@ public class Meeting : MonoBehaviour
     private const byte close_model_message_type = 4;
     private const byte version_message_type = 5;
     private const byte error_message_type = 6;
-    private MeetingWands wands;				// Other participant's wands
+    private const byte model_shown_message_type = 7;
+    private Dictionary<string, MeetingWands> wands = new Dictionary<string, MeetingWands>();	// Other participant's wands
     public GameObject face_prefab;			// Other participant's face
     private RoomCoordinates room_coords;
     private SetRoomCoordinates set_room_coords;		// Place two markers to define x-axis.
@@ -200,6 +203,7 @@ public class Meeting : MonoBehaviour
     void Start()
     {
         model_positions = new Dictionary<string, Position>();
+        model_shown = new Dictionary<string, bool>();
 	meeting_models = new Dictionary<string, Model>();
     }
     
@@ -211,6 +215,7 @@ public class Meeting : MonoBehaviour
         frame += 1;
 
         send_new_model_positions();
+        send_model_shown_or_hidden();
         send_wand_positions();
 	send_newly_opened_models();
 	send_newly_closed_models();
@@ -219,7 +224,6 @@ public class Meeting : MonoBehaviour
     public void start_hosting()
     {
         start_listening();
-        GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = "Started listening for meeting";
     }        
 
     public void stop_hosting()
@@ -236,6 +240,11 @@ public class Meeting : MonoBehaviour
     void OnApplicationQuit()
     {
         stop_hosting();
+    }
+
+    string device_id()
+    {
+      return SystemInfo.deviceUniqueIdentifier.Substring(0,8);
     }
     
     public void set_room_coordinates(bool enable)
@@ -265,30 +274,26 @@ public class Meeting : MonoBehaviour
 	if (!set_room_coords.marker_positions(ref x1, ref x2))
 	  return;
 
-        GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text += "\r\nSaving alignment " + x1 + " and " + x2;
-	
         // Update room coordinates.
 	if (room_coords == null)
 	  room_coords = new RoomCoordinates();
 	Matrix4x4 motion = room_coords.set_axis_markers(x1, x2);
 
-        GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text += "\r\nSet alignment " + x1 + " and " + x2;
-	
-	// Move models so they reflect the new room coordinates.
-	if (wands != null)
+	// Move wands so they reflect the new room coordinates.
+	foreach (MeetingWands w in wands.Values)
 	{
-	  move_object(wands.left_wand.transform, motion);
-	  move_object(wands.right_wand.transform, motion);
+	  move_object(w.left_wand.transform, motion);
+	  move_object(w.right_wand.transform, motion);
 	}
+
+	// Move models so they reflect the new room coordinates.
 	foreach (Model m in models.open_models.models)
 	  move_object(m.model_object.transform, motion);
     	record_current_positions();  // Avoid sending model moved messages
 
-        GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text += "\r\nRealigned " + x1 + " and " + x2;
 	// Save the new room coordinates in settings
     	ui.settings.save_meeting_coordinates(room_coordinate_system_identifier(), x1, x2);
         ui.settings.save();
-        GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text += "\r\nSaved " + x1 + " and " + x2;
     }
 
     bool load_room_coordinates()
@@ -299,7 +304,6 @@ public class Meeting : MonoBehaviour
 	  return false;
 	room_coords = new RoomCoordinates();
 	room_coords.set_axis_markers(x1, x2);
-        GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text += "\r\nGot room coords " + room_id + " x1 " + x1 + " x2 " + x2;	
 	return true;
     }
 
@@ -350,7 +354,6 @@ public class Meeting : MonoBehaviour
     {
         // This method only returns when the participant leaves the meeting
 	// or if an error occurs while connecting.
-        GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = "Joining meeting at IP address " + ip_address;
         Socket socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
         IPEndPoint host_address = new IPEndPoint(IPAddress.Parse(ip_address), port);
 	try
@@ -380,9 +383,7 @@ public class Meeting : MonoBehaviour
 	}
 	finally
 	{
-	  peers.Remove(peer);
-	  peer.close();
-	  ui.left_meeting();
+	  leave_meeting();
 	}
     }
 
@@ -393,12 +394,12 @@ public class Meeting : MonoBehaviour
 	peers.Clear();
 
 	model_positions.Clear();
+	model_shown.Clear();
 	meeting_models.Clear();
-	if (wands != null)
-	{
-	   wands.remove_wand_depictions();
-	   wands = null;
-        }
+	foreach (MeetingWands w in wands.Values)
+	   w.remove_wand_depictions();
+	wands.Clear();
+        ui.left_meeting();	  
     }
     
     async public Task<int> accept_connections()
@@ -413,7 +414,7 @@ public class Meeting : MonoBehaviour
 	}
         catch (Exception e)
 	{
-             GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = "Error accepting socket connection: " + e.Message;
+             debug_log("Error accepting socket connection: " + e.Message);
 	     return 0;
 	}
 
@@ -423,10 +424,11 @@ public class Meeting : MonoBehaviour
         send_prefix(peer);
         send_version(peer);
 
-	if (peers.Count >= 1)
+	if (peers.Count+1 >= max_participants)
 	{
-            GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = "Third participant tried to connect";
+            debug_log("Too many participant tried to connect " + max_participants);
 	    send_error_message("Meetings currently only allow 2 persons.", peer);
+	    await peer.flush();
 	    peer.close();
 	    return 0;
 	}
@@ -434,11 +436,12 @@ public class Meeting : MonoBehaviour
 	try
 	{
 	    peers.Add(peer);
+	    send_all_open_models(peer);
 	    return await process_messages(peer);
         }
         catch (Exception e)
         {
-            GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = "Error processing participant messages: " + e.Message;
+            debug_log("Error processing participant messages: " + e.Message);
         }
 	finally
 	{
@@ -455,7 +458,6 @@ public class Meeting : MonoBehaviour
         int msg_count = 0;
         if (await verify_prefix(peer))
         {
-        GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = "\r\nGot prefix " + prefix + " and processing messages";
             // Receive data
             while (true)
             {
@@ -465,7 +467,7 @@ public class Meeting : MonoBehaviour
                 await process_message(msg, peer);
                 msg_count += 1;
 //		if (msg_count % 200 == 0)
-//                GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = "Processed message " + msg_count;
+//                debug_log("Processed message " + msg_count);
             }
         }
 	leave_meeting();
@@ -526,11 +528,12 @@ public class Meeting : MonoBehaviour
 
     async private Task<bool> process_message(byte[] msg, Peer peer)
     {
-        // GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text += "\r\nGot message type" + msg[0];
         string json = Encoding.UTF8.GetString(msg, 1, msg.Length-1);
         byte message_type = msg[0];
         if (message_type == model_position_message_type)
             process_model_position_message(json);
+        else if (message_type == model_shown_message_type)
+            process_model_shown_message(json);
         else if (message_type == wand_position_message_type)
             process_wand_position_message(json);
         else if (message_type == open_model_message_type)
@@ -543,6 +546,8 @@ public class Meeting : MonoBehaviour
             process_error_message(json);
 	else
 	    return false;
+	if (hosting() && message_type != version_message_type && message_type != error_message_type)
+	    relay_message(msg, peer);
 	return true;
     }
 
@@ -551,7 +556,7 @@ public class Meeting : MonoBehaviour
         ModelPositionMessage m = JsonUtility.FromJson<ModelPositionMessage>(json);
         if (!meeting_models.ContainsKey(m.model_id))
 	{
-            GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text += "Got model motion, but found no model id " + m.model_id + ", name " + m.model_id;
+            debug_log("Got model motion, but found no model id " + m.model_id);
             return;
         }
         Model model = meeting_models[m.model_id];
@@ -577,8 +582,20 @@ public class Meeting : MonoBehaviour
         if (position_changed)
 	{
             record_latest_position(m.model_id);
-	    GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = "Updated model position " + m.position + " at frame " + frame;
         }
+    }
+
+    private void process_model_shown_message(string json)
+    {
+        ModelShownMessage m = JsonUtility.FromJson<ModelShownMessage>(json);
+        if (!meeting_models.ContainsKey(m.model_id))
+	{
+            debug_log("Got model shown, but found no model id " + m.model_id);
+            return;
+        }
+        Model model = meeting_models[m.model_id];
+	ui.show_or_hide_model(m.shown, model);
+	ui.update_ui_controls();
     }
 
     private void process_wand_position_message(string json)
@@ -590,20 +607,19 @@ public class Meeting : MonoBehaviour
 	   room_coords.from_room(ref m.right_position, ref m.right_rotation);
 	   room_coords.from_room(ref m.head_position, ref m.head_rotation);
         }
-	if (wands == null)
-	    wands = new MeetingWands(!ui.using_pass_through(), face_prefab);
-	wands.set_wand_positions(m);
+	if (!wands.ContainsKey(m.device_id))
+	    wands[m.device_id] = new MeetingWands(m.device_id, !ui.using_pass_through(), face_prefab);
+	wands[m.device_id].set_wand_positions(m);
     }
 
     public void using_pass_through(bool pass)
     {
-	if (wands != null)
-	  wands.show_head(!pass);
+	foreach (MeetingWands w in wands.Values)
+	  w.show_head(!pass);
     }
     
     async private Task<string> process_open_model_message(string json)
     {
-        GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = "Got open model message " + json.Length;
         OpenModelMessage m = JsonUtility.FromJson<OpenModelMessage>(json);
 	Model model = await models.load_gltf_bytes(m.gltf_data(), m.model_name);
 	Transform transform = model.model_object.transform;
@@ -618,7 +634,6 @@ public class Meeting : MonoBehaviour
 
     private void process_close_model_message(string json)
     {
-        GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = "Got close model message ";
         CloseModelMessage m = JsonUtility.FromJson<CloseModelMessage>(json);
 	if (meeting_models.ContainsKey(m.model_id))
 	{
@@ -690,7 +705,7 @@ public class Meeting : MonoBehaviour
     private void process_error_message(string json)
     {
         ErrorMessage m = JsonUtility.FromJson<ErrorMessage>(json);
-        GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = "Got error message " + m.error;
+	debug_log("Got error message " + m.error);
 	ui.show_error_message(m.error);
     }
 
@@ -716,6 +731,27 @@ public class Meeting : MonoBehaviour
         return count;
     }
 
+    private int send_model_shown_or_hidden()
+    {
+        int count = 0;
+        foreach (var item in meeting_models)
+        {
+	   string model_id = item.Key;
+           Model m = item.Value;
+	   bool shown = m.model_object.activeSelf;
+           if (!model_shown.ContainsKey(model_id) || model_shown[model_id] != shown)
+           {
+	       model_shown[model_id] = shown;
+               ModelShownMessage message = new ModelShownMessage(model_id, shown);
+               string msg = JsonUtility.ToJson(message);
+               send_message_to_all(model_shown_message_type, msg);
+               count += 1;
+           }
+        }
+        
+        return count;
+    }
+
     private void send_message(byte message_type, string msg, Peer peer)
     {
 	byte[] msg_chunk = message_bytes(message_type, msg);
@@ -727,7 +763,21 @@ public class Meeting : MonoBehaviour
 	byte[] msg_chunk = message_bytes(message_type, msg);
 	foreach (Peer peer in peers)
 	{
-	  bool drop = (allow_drop && peer.send_queue_length() > 5);
+	  bool drop = (allow_drop && peer.send_queue_length() >= 10);
+	  if (!drop)
+	    peer.send_bytes(msg_chunk);
+	}
+    }
+
+    private void relay_message(byte[] msg, Peer from_peer)
+    {
+	byte[] msg_chunk = prepend_message_length(msg);
+	bool allow_drop = (msg[0] == wand_position_message_type);
+	foreach (Peer peer in peers)
+	{
+	  if (peer == from_peer)
+	    continue;	// Don't send message to original sender.
+	  bool drop = (allow_drop && peer.send_queue_length() >= 10);
 	  if (!drop)
 	    peer.send_bytes(msg_chunk);
 	}
@@ -746,6 +796,16 @@ public class Meeting : MonoBehaviour
         msg_chunk[message_type_offset] = message_type;
         int message_offset = chunk_size_bytes.Length+1;
         msg_bytes.CopyTo(msg_chunk, message_offset);
+	return msg_chunk;
+    }
+
+    private byte[] prepend_message_length(byte[] msg)
+    {
+        // Concatenate chunk size and message.
+        byte[] chunk_size_bytes = BitConverter.GetBytes(msg.Length);
+        byte [] msg_chunk = new byte[chunk_size_bytes.Length + msg.Length];
+        chunk_size_bytes.CopyTo(msg_chunk, 0);
+        msg.CopyTo(msg_chunk, chunk_size_bytes.Length);
 	return msg_chunk;
     }
 	
@@ -780,7 +840,7 @@ public class Meeting : MonoBehaviour
 
     private void send_wand_positions()
     {
-        WandPositionMessage message = new WandPositionMessage(left_wand, right_wand, head);
+        WandPositionMessage message = new WandPositionMessage(device_id(), left_wand, right_wand, head);
 	if (room_coords != null)
 	{
 	    room_coords.to_room(ref message.left_position, ref message.left_rotation);
@@ -799,7 +859,6 @@ public class Meeting : MonoBehaviour
 	  if (!meeting_models.ContainsValue(m))
 	  {
 	      string model_name = m.model_object.name;
-              GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = "Sending open model message " + model_name;
 	      string model_id = new_model_id();
 	      meeting_models.Add(model_id, m);
 	      OpenModelMessage msg = new OpenModelMessage();
@@ -814,7 +873,6 @@ public class Meeting : MonoBehaviour
 	      string message = JsonUtility.ToJson(msg);
 	      send_message_to_all(open_model_message_type, message);
 	      count += 1;
-              GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text += "\r\nSent open model message " + model_name;
 	  }
         }
 	return count;
@@ -837,7 +895,6 @@ public class Meeting : MonoBehaviour
     private void send_model(Model m, Peer peer)
     {
 	string model_name = m.model_object.name;
-	GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = "Sending open model message " + model_name;
 	string model_id = new_model_id();
 	meeting_models.Add(model_id, m);
 	OpenModelMessage msg = new OpenModelMessage();
@@ -851,7 +908,6 @@ public class Meeting : MonoBehaviour
 	msg.scale = t.localScale.x;
 	string message = JsonUtility.ToJson(msg);
 	send_message(open_model_message_type, message, peer);
-	GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text += "\r\nSent open model message " + model_name;
     }
 
     private string new_model_id()
@@ -871,7 +927,6 @@ public class Meeting : MonoBehaviour
 	  Model m = item.Value;
 	  if (!models.open_models.models.Contains(m))
 	  {
-              // GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = "Sending close model message " + model_id;
 	      string model_id = item.Key;
 	      meeting_models.Remove(model_id);
 	      CloseModelMessage msg = new CloseModelMessage();
@@ -879,10 +934,16 @@ public class Meeting : MonoBehaviour
 	      string message = JsonUtility.ToJson(msg);
 	      send_message_to_all(close_model_message_type, message);
       	      count += 1;
-              // GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text += "\r\nSent close model message " + model_id;
 	  }
         }
 	return count;
+    }
+
+    private void debug_log(string message)
+    {
+        GameObject debug = GameObject.Find("DebugText");
+	if (debug != null)
+          debug.GetComponentInChildren<TextMeshProUGUI>().text = message;
     }
 }
 
@@ -928,16 +989,31 @@ class Position
     }
 }
 
+[Serializable]
+public class ModelShownMessage
+{
+    public string model_id;
+    public bool shown;
+
+    public ModelShownMessage(string model_id, bool shown)
+    {
+      this.model_id = model_id;
+      this.shown = shown;
+    }
+}
+
 // Cylinders depicting other participant's wands.
 class MeetingWands
 {
+    public string device_id;
     public GameObject left_wand, right_wand, head;
     private Vector3 wand_scale = new Vector3(0.02f, 0.2f, 0.02f);
     private Vector3 head_scale = new Vector3(0.2f, 0.2f, 0.03f);
     private GameObject face_prefab;
     
-    public MeetingWands(bool show_head, GameObject face_prefab)
+    public MeetingWands(string device_id, bool show_head, GameObject face_prefab)
     {
+	this.device_id = device_id;
         left_wand = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
         left_wand.transform.localScale = wand_scale;
         right_wand = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
@@ -985,11 +1061,13 @@ class MeetingWands
 [Serializable]
 public class WandPositionMessage
 {
+    public string device_id;
     public Vector3 left_position, right_position, head_position;
     public Quaternion left_rotation, right_rotation, head_rotation;
 
-    public WandPositionMessage(Transform left, Transform right, Transform head)
+    public WandPositionMessage(string device_id, Transform left, Transform right, Transform head)
     {
+	this.device_id = device_id;
         left_position = left.position;
         left_rotation = left.rotation;
         right_position = right.position;
@@ -1095,21 +1173,17 @@ class SetRoomCoordinates
     {
       if (n == 1)
       {
-        GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = "Will drop marker1 " + position;
         if (placed_marker1 == null)
 	  placed_marker1 = UnityEngine.Object.Instantiate(coord_marker1_prefab, position, Quaternion.identity, marker_parent);
 	else
 	  placed_marker1.transform.position = position;
-        GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = "Dropped marker1 " + position;
       }
       else if (n == 2)
       {
-        GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = "Will drop marker2 " + position;
         if (placed_marker2 == null)
 	  placed_marker2 = UnityEngine.Object.Instantiate(coord_marker2_prefab, position, Quaternion.identity, marker_parent);
 	else
 	  placed_marker2.transform.position = position;
-        GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = "Dropped marker2 " + position;
       }
     }
 
@@ -1172,6 +1246,7 @@ public class Peer
     public Peer(Socket socket)
     {
       stream = new NetworkStream(socket, true);
+      stream.WriteTimeout = 1; // milliseconds, applies only to synchronous writes
     }
 
     public void close()
@@ -1195,7 +1270,19 @@ public class Peer
         while (send_message_queue.Count > 0)
         {
           byte[] msg = send_message_queue.Dequeue();
-          await stream.WriteAsync(msg, 0, msg.Length);
+	  try
+	  {
+	    // Keep doing synchronous writes until one times out.
+	    // This allows clearing the queue.  Without it Unity seems
+	    // to only be restarting this task once per frame, so a maximum
+	    // of one message is sent per frame and sometimes many messages
+	    // accumulate per frame and it falls further and further behind.
+	    stream.Write(msg, 0, msg.Length);
+	  }
+	  catch (IOException)
+	  {
+            await stream.WriteAsync(msg, 0, msg.Length);
+	  }
 	  count += 1;
         }
       }
@@ -1206,6 +1293,18 @@ public class Peer
       return count;
     }
 
+    async public Task<int> flush()
+    {
+      int count = 0;
+      while (send_message_queue.Count > 0)
+      {
+        byte[] msg = send_message_queue.Dequeue();
+        await stream.WriteAsync(msg, 0, msg.Length);
+	count += 1;
+      }
+      return count;
+    }
+    
     public int send_queue_length()
     {
       return send_message_queue.Count;
