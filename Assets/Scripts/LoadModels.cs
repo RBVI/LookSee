@@ -274,4 +274,9 @@ public class Model
   {
     return File.GetLastWriteTime(path) > last_modified;
   }
+
+  public string name()
+  {
+    return Path.GetFileNameWithoutExtension(path);
+  }
 }

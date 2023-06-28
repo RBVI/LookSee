@@ -780,6 +780,15 @@ public class Meeting : MonoBehaviour
 	  bool drop = (allow_drop && peer.send_queue_length() >= 10);
 	  if (!drop)
 	    peer.send_bytes(msg_chunk);
+	  /*
+	    The socket send buffer is 512K bytes using Unity 2022.2.5f1 which
+	    allows about 5000 wand position messages to get buffered up before
+	    the WriteAsync() blocks and the send queue gets longer stopping
+	    further wand positions messages.  Might be sensible to reduce the
+	    5000 buffered messages by making the send buffer smaller.  Or I
+	    could block sending if the peer has not sent us wand position in
+	    the past 0.2 seconds, treating it as a ping signal.
+	  */
 	}
     }
 
@@ -1246,7 +1255,6 @@ public class Peer
     public Peer(Socket socket)
     {
       stream = new NetworkStream(socket, true);
-      stream.WriteTimeout = 1; // milliseconds, applies only to synchronous writes
     }
 
     public void close()
@@ -1269,21 +1277,19 @@ public class Peer
       {
         while (send_message_queue.Count > 0)
         {
-          byte[] msg = send_message_queue.Dequeue();
-	  try
-	  {
-	    // Keep doing synchronous writes until one times out.
-	    // This allows clearing the queue.  Without it Unity seems
-	    // to only be restarting this task once per frame, so a maximum
-	    // of one message is sent per frame and sometimes many messages
-	    // accumulate per frame and it falls further and further behind.
-	    stream.Write(msg, 0, msg.Length);
-	  }
-	  catch (IOException)
-	  {
-            await stream.WriteAsync(msg, 0, msg.Length);
-	  }
-	  count += 1;
+	  count += send_message_queue.Count;
+          byte[] messages = concatenated_queue_messages();
+          await stream.WriteAsync(messages, 0, messages.Length);
+/*
+  6/27/23: I tried using a synchronous Write() for each message with
+    stream.WriteTimeout = 1 (msec), but the timeout was never
+    invoked and once the socket buffer (512k) filled it blocked
+    the Update loop and froze the application.  So then I switched
+    to using only WriteAsync() and concatenated all the queued messages
+    because Unity was only running this task once per update and so
+    messages would get backlogged with 3 person meetings where there
+    is more than 1 message being sent per frame.
+*/  
         }
       }
       finally
@@ -1308,5 +1314,21 @@ public class Peer
     public int send_queue_length()
     {
       return send_message_queue.Count;
+    }
+
+    public byte[] concatenated_queue_messages()
+    {
+      int length = 0;
+      foreach(byte[] msg in send_message_queue)
+        length += msg.Length;
+      byte[] concat = new byte[length];
+      int offset = 0;
+      while (send_message_queue.Count > 0)
+      {
+          byte[] msg = send_message_queue.Dequeue();
+	  msg.CopyTo(concat, offset);
+	  offset += msg.Length;
+      }
+      return concat;
     }
 }

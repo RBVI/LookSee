@@ -52,7 +52,6 @@ public class ModelUI : MonoBehaviour
     
     public void ShowOrHideUI(InputAction.CallbackContext context)
     {
-//      GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text += " " + context.phase + " " + context.ReadValueAsButton();
       if (!context.performed)
         return;
       bool show = !gameObject.activeSelf;
@@ -79,21 +78,17 @@ public class ModelUI : MonoBehaviour
 	                               new Vector3(0f,y,0f), Quaternion.identity);
 	  row.transform.SetParent(gameObject.transform, false);
   	  row.transform.SetSiblingIndex(0);  // Stack beneath meeting keypad
-	  foreach(ButtonSelect bs in row.GetComponentsInChildren<ButtonSelect>())
-	  {
-            Action<string> open_show_hide = (string button_name) => {
-	       if (button_name == "Hide button")
-	          model.model_object.SetActive(false);
-	       else if (button_name == "Show button")
-	          model.model_object.SetActive(true);
-  	       else if (button_name == "Close button")
-                  load_models.open_models.remove_model(model);
-	       };
-	    bs.action = open_show_hide;
-	  }
-          string filename = Path.GetFileName(model.path);
+  	  // Set callback for "close" button.
+	  GameObject cbutton = row.transform.Find("Close button").gameObject;
+	  ButtonSelect bs = cbutton.GetComponentInChildren<ButtonSelect>();
+          Action<string> close = (string button_name) => { load_models.open_models.remove_model(model); };
+	  bs.action = close;
+	  // Set callback for "shown" toggle button.
+  	  Toggle t = row.GetComponentInChildren<Toggle>();
+	  t.isOn = model.model_object.activeSelf;
+	  t.onValueChanged.AddListener(delegate { show_or_hide_model(t.isOn, model); });
 	  GameObject name = row.transform.Find("Name").gameObject;
-	  name.GetComponentInChildren<TextMeshProUGUI>().text = filename;
+	  name.GetComponentInChildren<TextMeshProUGUI>().text = model.name();
 	  y += 0.07f;
 	}
 
@@ -206,6 +201,11 @@ public class ModelUI : MonoBehaviour
         file_receiver.StopListening();
   }
 
+  public void show_or_hide_model(bool show, Model model)
+  {
+      model.model_object.SetActive(show);
+  }
+  
   public void start_meeting(string button_name)
   {
     meeting.start_hosting();
@@ -213,7 +213,6 @@ public class ModelUI : MonoBehaviour
     meeting_buttons.SetActive(false);
     meeting_host_status.SetActive(true);
     Vector3 dim = OVRManager.boundary.GetDimensions(OVRBoundary.BoundaryType.PlayArea);
-    GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = "Boundary size " + dim.x + " " + dim.z;
   }
 
   public void end_meeting(string button_name)
@@ -261,11 +260,11 @@ public class ModelUI : MonoBehaviour
 
   public void report_join_success(string address)
   {
-    settings.meeting_last_join_ip_address = address;
     meeting_buttons.SetActive(false);
     join_address_text.text = "Connected " + address;
     meeting_join_status.SetActive(true);
-    GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = "Connected";
+    settings.meeting_last_join_ip_address = address;
+    settings.save();
   }
 
   public void report_join_failed(string error_message)
@@ -273,7 +272,6 @@ public class ModelUI : MonoBehaviour
     show_error_message(error_message);
     meeting_buttons.SetActive(true);
     meeting_join_status.SetActive(false);
-    GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = error_message;
   }
   
   public void align_meeting(bool align)
