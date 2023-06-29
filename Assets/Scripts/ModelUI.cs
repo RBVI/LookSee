@@ -10,9 +10,10 @@ using TMPro; 			   // use TextMeshProUGUI
 
 public class ModelUI : MonoBehaviour
 {
+    public GameObject models_pane, files_pane, meeting_pane, options_pane;
     public GameObject hide_show_close_prefab;
     public GameObject open_file_prefab;
-    public GameObject no_files_message;
+    public GameObject no_models_message, no_files_message;
     public GameObject options;
     public GameObject error_panel;
     public TextMeshProUGUI error_text;
@@ -43,7 +44,7 @@ public class ModelUI : MonoBehaviour
       OVRManager.TrackingAcquired += set_initial_ui_panel_position_delayed;
 
       no_files_message.GetComponent<TextMeshProUGUI>().text += " " + Application.persistentDataPath;
-      update_ui_controls();
+      update_files_pane();
 
       ip_address.text = settings.meeting_last_join_ip_address;
 
@@ -65,19 +66,25 @@ public class ModelUI : MonoBehaviour
 
     public void update_ui_controls()
     {
+      update_models_pane();
+      update_files_pane();
+    }
+
+    private void update_models_pane()
+    {
       // Destroy current buttons.
-      foreach (Transform child in transform)
+      foreach (Transform child in models_pane.transform)
 	if (child.gameObject.tag == "dynamicUI")
           GameObject.Destroy(child.gameObject);
 
       // Make new Hide, Show, Close buttons.
-      float y = 0.10f;	// meters
+      float y = -140f;	// millimeters
       foreach (Model model in load_models.open_models.models)
 	{
 	  GameObject row = Instantiate(hide_show_close_prefab,
 	                               new Vector3(0f,y,0f), Quaternion.identity);
-	  row.transform.SetParent(gameObject.transform, false);
-  	  row.transform.SetSiblingIndex(0);  // Stack beneath meeting keypad
+	  row.transform.SetParent(models_pane.transform, false);
+  	  // row.transform.SetSiblingIndex(0);  // Stack beneath meeting keypad
   	  // Set callback for "close" button.
 	  GameObject cbutton = row.transform.Find("Close button").gameObject;
 	  ButtonSelect bs = cbutton.GetComponentInChildren<ButtonSelect>();
@@ -89,28 +96,34 @@ public class ModelUI : MonoBehaviour
 	  t.onValueChanged.AddListener(delegate { show_or_hide_model(t.isOn, model); });
 	  GameObject name = row.transform.Find("Name").gameObject;
 	  name.GetComponentInChildren<TextMeshProUGUI>().text = model.name();
-	  y += 0.07f;
+	  y += 70f;
 	}
 
-//      options.transform.localPosition = new Vector3(0f,y,0f);
-//      y -= 0.1f;
+        no_models_message.SetActive(load_models.open_models.models.Count == 0);
+     }
+
+    private void update_files_pane()
+    {
+      // Destroy current buttons.
+      foreach (Transform child in files_pane.transform)
+	if (child.gameObject.tag == "dynamicUI")
+          GameObject.Destroy(child.gameObject);
 
       // Make new Open buttons.
       string[] files = load_models.gltf_file_paths();
-//      y = -0.08f;
-      y = -0.14f;
+      float y = -140f;	// millimeters
       int h = (files.Length + 1) / 2, count = 0;
       foreach (string path in files)
 	{
 	  // Position buttons in 2 columns.
-	  float x = (count >= h ? 0.4f : 0f);
+	  float x = (count >= h ? 400f : 0f);  // millimeters
 	  if (count == h)
-	    y += h * 0.06f;
+	    y -= h * 60f;
           count += 1;
 	  GameObject row = Instantiate(open_file_prefab,
 	                               new Vector3(x,y,0f), Quaternion.identity);
-	  row.transform.SetParent(gameObject.transform, false);
-	  row.transform.SetSiblingIndex(0);  // Stack beneath meeting keypad
+	  row.transform.SetParent(files_pane.transform, false);
+	  // row.transform.SetSiblingIndex(0);  // Stack beneath meeting keypad
 	  ButtonSelect bs = row.GetComponentInChildren<ButtonSelect>();
 	  // Register open file callback function.
 	  Func<Task> open_file = async () => await load_models.load_gltf_file(path);
@@ -119,17 +132,10 @@ public class ModelUI : MonoBehaviour
           string filename = Path.GetFileNameWithoutExtension(path);
 	  GameObject name = row.transform.Find("Name").gameObject;
 	  name.GetComponentInChildren<TextMeshProUGUI>().text = filename;
-	  y -= 0.06f;
+	  y += 60f;
 	}
 
-      if (files.Length == 0)
-        {
-	  y -= 0.1f;
-	  no_files_message.transform.localPosition = new Vector3(0f,y,0f);
-	  no_files_message.SetActive(true);
-	}
-      else
-	  no_files_message.SetActive(false);
+      no_files_message.SetActive(files.Length == 0);
     }
 
   void position_ui_panel(InputDevice device)
@@ -162,6 +168,45 @@ public class ModelUI : MonoBehaviour
     initial_position_set = true;
   }
 
+  public void show_models_pane()
+  {
+    hide_panes();
+    update_models_pane();
+    models_pane.SetActive(true);
+  }
+
+  public void show_files_pane()
+  {
+    hide_panes();
+    update_files_pane();
+    files_pane.SetActive(true);
+  }
+
+  public void show_meeting_pane()
+  {
+    hide_panes();
+    meeting_pane.SetActive(true);
+  }
+
+  public void show_options_pane()
+  {
+    hide_panes();
+    options_pane.SetActive(true);
+  }
+
+  private void hide_panes()
+  {
+    models_pane.SetActive(false);
+    files_pane.SetActive(false);
+    meeting_pane.SetActive(false);
+    options_pane.SetActive(false);
+  }
+  
+  public void hide_ui()
+  {
+    gameObject.SetActive(false);
+  }
+  
   public void pass_through_toggled(bool pass)
   {
     pass_through.enabled = pass;
