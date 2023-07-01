@@ -11,7 +11,7 @@ using static ModelUtilities;     // use model_bounds()
 
 public class LoadModels : MonoBehaviour
 {
-  public float initial_model_size = 0.5f;	// meters
+  public float initial_model_size = 1.0f;	// meters
   public float initial_distance = 1.0f;		// meters
   public GameObject example_model;		// Shown if not GLTF files found.
   public ModelUI model_ui;
