@@ -19,7 +19,7 @@ public class ModelUI : MonoBehaviour
     public TextMeshProUGUI error_text;
     public float check_for_files_interval = 5.0f;	// seconds
     public bool open_new = false;
-    public Toggle open_new_toggle;
+    public Toggle open_new_toggle, show_room_toggle, edge_smoothing_toggle;
     public LoadModels load_models;
     public FileReceiver file_receiver;
     public Meeting meeting;
@@ -47,6 +47,8 @@ public class ModelUI : MonoBehaviour
       update_files_pane();
 
       ip_address.text = settings.meeting_last_join_ip_address;
+      show_room_toggle.isOn = settings.show_room;
+      edge_smoothing_toggle.isOn = settings.edge_smoothing;
 
       InvokeRepeating("open_new_files", check_for_files_interval, check_for_files_interval);
     }
@@ -211,11 +213,25 @@ public class ModelUI : MonoBehaviour
   {
     pass_through.enabled = pass;
     meeting.using_pass_through(pass);
+    settings.show_room = pass;
+    settings.save();
   }
 
   public bool using_pass_through()
   {
     return pass_through.enabled;
+  }
+
+  public void set_edge_smoothing(bool smooth)
+  {
+    // OVRManager.cs in Oculus Integration version 53.1 does not update when
+    // OVRManager.useRecommendedMSAALevel is turned off.
+    // So set it directly in QualitySettings.
+    int level = (smooth ? OVRManager.display.recommendedMSAALevel : 0);
+    QualitySettings.antiAliasing = level;
+    
+    settings.edge_smoothing = smooth;
+    settings.save();
   }
   
   public void open_new_toggled(bool open)
@@ -358,6 +374,7 @@ public class LookSeeSettings
 {
   public string meeting_last_join_ip_address;
   public List<MeetingCoordinates> meeting_coordinates;
+  public bool show_room = true, edge_smoothing = true;
 
   private string settings_path()
   {
