@@ -297,6 +297,7 @@ public class ModelUI : MonoBehaviour
   public void left_meeting()
   {
     meeting_join_status.SetActive(false);
+    meeting_host_status.SetActive(false);
     meeting_buttons.SetActive(true);
   }
   

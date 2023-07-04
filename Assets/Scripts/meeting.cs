@@ -219,6 +219,7 @@ public class Meeting : MonoBehaviour
         send_wand_positions();
 	send_newly_opened_models();
 	send_newly_closed_models();
+	hide_inactive_wands();
     }
 
     public void start_hosting()
@@ -470,7 +471,8 @@ public class Meeting : MonoBehaviour
 //                debug_log("Processed message " + msg_count);
             }
         }
-	leave_meeting();
+	if (!hosting())
+	    leave_meeting();
         return msg_count;
     }
 
@@ -612,6 +614,12 @@ public class Meeting : MonoBehaviour
 	wands[m.device_id].set_wand_positions(m);
     }
 
+    private void hide_inactive_wands()
+    {
+	foreach (MeetingWands w in wands.Values)
+	  w.show_if_active();
+    }
+    
     public void using_pass_through(bool pass)
     {
 	foreach (MeetingWands w in wands.Values)
@@ -1019,6 +1027,7 @@ class MeetingWands
     private Vector3 wand_scale = new Vector3(0.02f, 0.2f, 0.02f);
     private Vector3 head_scale = new Vector3(0.2f, 0.2f, 0.03f);
     private GameObject face_prefab;
+    private float last_update_time = 0f, inactive_hide_time = 3.0f;	// seconds
     
     public MeetingWands(string device_id, bool show_head, GameObject face_prefab)
     {
@@ -1064,7 +1073,23 @@ class MeetingWands
 	  htf.position = msg.head_position;
   	  htf.rotation = msg.head_rotation;
 	}
+	last_update_time = Time.realtimeSinceStartup;
+	show_if_active();
     }
+
+    public bool show_if_active()
+    {
+        bool show = (Time.realtimeSinceStartup < last_update_time + inactive_hide_time);
+	if (show != left_wand.activeSelf)
+	{
+  	  left_wand.SetActive(show);
+	  right_wand.SetActive(show);
+	  if (head != null)
+	    head.SetActive(show);
+	}
+	return show;
+    }
+    
 }
 
 [Serializable]
