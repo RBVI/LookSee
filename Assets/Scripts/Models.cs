@@ -35,15 +35,16 @@ class ModelUtilities
     float amin = 180.0f;
     Model closest = null;
     foreach (Model model in models.models)
-    {
-      Bounds b = model_bounds(model.model_object);
-      float a = Vector3.Angle(b.center - origin, direction);
-      if (a < amin)
+      if (model.model_object.activeSelf)
       {
-        amin = a;
-        closest = model;
+	Bounds b = model_bounds(model.model_object);
+	float a = Vector3.Angle(b.center - origin, direction);
+	if (a < amin)
+	{
+	  amin = a;
+	  closest = model;
+	}
       }
-    }
     return closest;
   }
 }
