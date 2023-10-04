@@ -178,7 +178,7 @@ public class Meeting : MonoBehaviour
     public Transform head;			  // For reporting head position to others.
     public ModelUI ui;				  // Use ui.settings
 
-    private string looksee_version = "7";
+    private string looksee_version = "8";
     private string minimum_compatible_version = "6";
     private int port = 21213;
     private string prefix = "LookSeeMeeting";
@@ -939,13 +939,14 @@ public class Meeting : MonoBehaviour
     private int send_newly_closed_models()
     {
 	int count = 0;
+	List<string> closed = new List<string>();
         foreach (var item in meeting_models)
 	{
 	  Model m = item.Value;
 	  if (!models.open_models.models.Contains(m))
 	  {
 	      string model_id = item.Key;
-	      meeting_models.Remove(model_id);
+	      closed.Add(model_id);  // Don't modify meeting_models while iterating over it.
 	      CloseModelMessage msg = new CloseModelMessage();
 	      msg.model_id = model_id;
 	      string message = JsonUtility.ToJson(msg);
@@ -953,6 +954,9 @@ public class Meeting : MonoBehaviour
       	      count += 1;
 	  }
         }
+	foreach(string model_id in closed)
+	  meeting_models.Remove(model_id);
+
 	return count;
     }
 
