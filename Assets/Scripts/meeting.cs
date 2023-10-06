@@ -402,6 +402,15 @@ public class Meeting : MonoBehaviour
 	wands.Clear();
         ui.left_meeting();	  
     }
+
+    void remove_wands(Peer peer)
+    {
+        if (wands.ContainsKey(peer.device_id))
+	{
+	  wands[peer.device_id].remove_wand_depictions();
+	  wands.Remove(peer.device_id);
+        }
+    }
     
     async public Task<int> accept_connections()
     {
@@ -447,6 +456,8 @@ public class Meeting : MonoBehaviour
 	finally
 	{
 	    peers.Remove(peer);
+	    remove_wands(peer);
+	    // TODO: Tell other participants to remove this one's wands.
 	    peer.close();
 	}
 	
@@ -537,7 +548,7 @@ public class Meeting : MonoBehaviour
         else if (message_type == model_shown_message_type)
             process_model_shown_message(json);
         else if (message_type == wand_position_message_type)
-            process_wand_position_message(json);
+            process_wand_position_message(json, peer);
         else if (message_type == open_model_message_type)
             await process_open_model_message(json);
         else if (message_type == close_model_message_type)
@@ -600,7 +611,7 @@ public class Meeting : MonoBehaviour
 	ui.update_ui_controls();
     }
 
-    private void process_wand_position_message(string json)
+    private void process_wand_position_message(string json, Peer peer)
     {
         WandPositionMessage m = JsonUtility.FromJson<WandPositionMessage>(json);
 	if (room_coords != null)
@@ -612,6 +623,7 @@ public class Meeting : MonoBehaviour
 	if (!wands.ContainsKey(m.device_id))
 	    wands[m.device_id] = new MeetingWands(m.device_id, !ui.using_pass_through(), face_prefab);
 	wands[m.device_id].set_wand_positions(m);
+	peer.device_id = m.device_id;
     }
 
     private void hide_inactive_wands()
@@ -1278,6 +1290,7 @@ public class ErrorMessage
 public class Peer
 {
     public NetworkStream stream;
+    public string device_id = "unknown";
     private Queue<byte[]> send_message_queue = new Queue<byte[]>();
     private bool have_send_task = false;	// Have at most 1 task send messages.
 
