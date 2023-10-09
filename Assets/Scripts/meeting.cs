@@ -157,7 +157,7 @@
 // in addition to the low resolution, poor dynamic range and colors.
 //
 using System.Collections.Generic;        // use Dictionary
-using System.IO;                        // use Path
+using System.IO;                        // use File
 using System.Net.Sockets;                // use Socket
 using System.Net;                        // use IPAddress
 using System.Text;                        // use Encoding
@@ -166,7 +166,6 @@ using System;                                // use Exception
 using UnityEngine;                        // use Debug
 using UnityEngine.InputSystem;			// use InputAction
 using UnityEngine.InputSystem.Utilities;	// use device.usages.Contains()
-using UnityEngine.UI;                        // use Text
 using TMPro;                            // use TextMeshProUGUI
 
 public class Meeting : MonoBehaviour
@@ -178,21 +177,14 @@ public class Meeting : MonoBehaviour
     public Transform head;			  // For reporting head position to others.
     public ModelUI ui;				  // Use ui.settings
 
-    private string looksee_version = "8";
-    private string minimum_compatible_version = "6";
+    private string looksee_version = "9";	  // TODO: Need to switch to v10 since version 8 and older used string compare
+    private string minimum_compatible_version = "9";
     private int port = 21213;
     private string prefix = "LookSeeMeeting";
     private int max_participants = 100;
     private Socket listening_socket;                // Listen for new participants
     private List<Peer> peers = new List<Peer>();    // Connection to host or host to all participants
     private int frame = 0;
-    private const byte model_position_message_type = 1;
-    private const byte wand_position_message_type = 2;
-    private const byte open_model_message_type = 3;
-    private const byte close_model_message_type = 4;
-    private const byte version_message_type = 5;
-    private const byte error_message_type = 6;
-    private const byte model_shown_message_type = 7;
     private Dictionary<string, MeetingWands> wands = new Dictionary<string, MeetingWands>();	// Other participant's wands
     public GameObject face_prefab;			// Other participant's face
     private RoomCoordinates room_coords;
@@ -379,13 +371,55 @@ public class Meeting : MonoBehaviour
 	{
           send_prefix(peer);
 	  send_version(peer);
-	  send_all_open_models(peer);
-          await process_messages(peer);
+	  if (await check_for_compatible_version(peer))
+	  {
+	    send_all_open_models(peer);
+            await process_messages(peer);
+          }
 	}
 	finally
 	{
 	  leave_meeting();
 	}
+    }
+
+    private void send_version(Peer peer)
+    {
+        VersionMessage message = new VersionMessage(looksee_version);
+        send_message(message.serialize(), peer);
+    }
+
+    async private Task<bool> check_for_compatible_version(Peer peer)
+    {
+        if (!await verify_prefix(peer))
+	  return false;
+
+        byte [] version_message = await read_message(peer);
+        if (version_message.Length == 0)
+	  return false;
+        if (version_message[0] != VersionMessage.message_type)
+	  return false;
+        VersionMessage m = VersionMessage.deserialize(version_message);
+
+	if (version_less(m.version, minimum_compatible_version))
+	{
+	  if (hosting())
+	    send_error_message("Joining this meeting requires LookSee version " + minimum_compatible_version +
+	    		       " or higher.  You are using version " + m.version, peer);
+          else
+ 	    ui.report_join_failed("The meeting host is using older LookSee version " + m.version +
+	    			  " that is not compatible with your newer LookSee version " + looksee_version +
+				  " that requires version " + minimum_compatible_version + " or newer.");
+	  return false;
+	}
+
+        return true;
+    }
+
+    private bool version_less(string version1, string version2)
+    {
+        float v1 = float.Parse(version1), v2 = float.Parse(version2);
+	return v1 < v2;
     }
 
     public void leave_meeting()
@@ -434,15 +468,22 @@ public class Meeting : MonoBehaviour
         send_prefix(peer);
         send_version(peer);
 
-	if (peers.Count+1 >= max_participants)
+	if (!await check_for_compatible_version(peer))
 	{
-            debug_log("Too many participant tried to connect " + max_participants);
-	    send_error_message("Meetings currently only allow 2 persons.", peer);
 	    await peer.flush();
 	    peer.close();
 	    return 0;
 	}
 
+	if (peers.Count+1 >= max_participants)
+	{
+            debug_log("Too many participant tried to connect " + max_participants);
+	    send_error_message("Meetings currently only allow " + max_participants + " persons.", peer);
+	    await peer.flush();
+	    peer.close();
+	    return 0;
+	}
+	
 	try
 	{
 	    peers.Add(peer);
@@ -468,22 +509,18 @@ public class Meeting : MonoBehaviour
     {
         // Read and process messages from the remote client until the socket is closed.
         int msg_count = 0;
-        if (await verify_prefix(peer))
+        while (true)
         {
-            // Receive data
-            while (true)
-            {
-                byte [] msg = await read_message(peer);
-                if (msg.Length == 0)
-                  break;
-                await process_message(msg, peer);
-                msg_count += 1;
-//		if (msg_count % 200 == 0)
-//                debug_log("Processed message " + msg_count);
-            }
+            byte [] msg = await read_message(peer);
+            if (msg.Length == 0)
+              break;
+            await process_message(msg, peer);
+            msg_count += 1;
         }
+
 	if (!hosting())
 	    leave_meeting();
+
         return msg_count;
     }
 
@@ -499,7 +536,8 @@ public class Meeting : MonoBehaviour
         if (prefix_bytes.Length == 0)
             return true;
         byte [] received_prefix = await read_bytes(peer, prefix_bytes.Length);
-        return equal_byte_arrays(prefix_bytes, received_prefix);
+        bool same = equal_byte_arrays(prefix_bytes, received_prefix);
+	return same;
     }
 
     private bool equal_byte_arrays(ReadOnlySpan<byte> a1, ReadOnlySpan<byte> a2)
@@ -541,32 +579,29 @@ public class Meeting : MonoBehaviour
 
     async private Task<bool> process_message(byte[] msg, Peer peer)
     {
-        string json = Encoding.UTF8.GetString(msg, 1, msg.Length-1);
         byte message_type = msg[0];
-        if (message_type == model_position_message_type)
-            process_model_position_message(json);
-        else if (message_type == model_shown_message_type)
-            process_model_shown_message(json);
-        else if (message_type == wand_position_message_type)
-            process_wand_position_message(json, peer);
-        else if (message_type == open_model_message_type)
-            await process_open_model_message(json);
-        else if (message_type == close_model_message_type)
-            process_close_model_message(json);
-        else if (message_type == version_message_type)
-            process_version_message(json, peer);
-        else if (message_type == error_message_type)
-            process_error_message(json);
+        if (message_type == ModelPositionMessage.message_type)
+            process_model_position_message(msg);
+        else if (message_type == ModelShownMessage.message_type)
+            process_model_shown_message(msg);
+        else if (message_type == WandPositionMessage.message_type)
+            process_wand_position_message(msg, peer);
+        else if (message_type == OpenModelMessage.message_type)
+            await process_open_model_message(msg);
+        else if (message_type == CloseModelMessage.message_type)
+            process_close_model_message(msg);
+        else if (message_type == ErrorMessage.message_type)
+            process_error_message(msg);
 	else
 	    return false;
-	if (hosting() && message_type != version_message_type && message_type != error_message_type)
+	if (hosting() && message_type != ErrorMessage.message_type)
 	    relay_message(msg, peer);
 	return true;
     }
 
-    private void process_model_position_message(string json)
+    private void process_model_position_message(byte [] msg)
     {
-        ModelPositionMessage m = JsonUtility.FromJson<ModelPositionMessage>(json);
+        ModelPositionMessage m = ModelPositionMessage.deserialize(msg);
         if (!meeting_models.ContainsKey(m.model_id))
 	{
             debug_log("Got model motion, but found no model id " + m.model_id);
@@ -598,9 +633,9 @@ public class Meeting : MonoBehaviour
         }
     }
 
-    private void process_model_shown_message(string json)
+    private void process_model_shown_message(byte [] msg)
     {
-        ModelShownMessage m = JsonUtility.FromJson<ModelShownMessage>(json);
+        ModelShownMessage m = ModelShownMessage.deserialize(msg);
         if (!meeting_models.ContainsKey(m.model_id))
 	{
             debug_log("Got model shown, but found no model id " + m.model_id);
@@ -611,9 +646,9 @@ public class Meeting : MonoBehaviour
 	ui.update_ui_controls();
     }
 
-    private void process_wand_position_message(string json, Peer peer)
+    private void process_wand_position_message(byte [] msg, Peer peer)
     {
-        WandPositionMessage m = JsonUtility.FromJson<WandPositionMessage>(json);
+        WandPositionMessage m = WandPositionMessage.deserialize(msg);
 	if (room_coords != null)
 	{
 	   room_coords.from_room(ref m.left_position, ref m.left_rotation);
@@ -638,10 +673,10 @@ public class Meeting : MonoBehaviour
 	  w.show_head(!pass);
     }
     
-    async private Task<string> process_open_model_message(string json)
+    async private Task<string> process_open_model_message(byte [] msg)
     {
-        OpenModelMessage m = JsonUtility.FromJson<OpenModelMessage>(json);
-	Model model = await models.load_gltf_bytes(m.gltf_data(), m.model_name);
+        OpenModelMessage m = OpenModelMessage.deserialize(msg);
+	Model model = await models.load_gltf_bytes(m.gltf_bytes, m.model_name);
 	Transform transform = model.model_object.transform;
 	transform.position = m.position;
 	transform.rotation = m.rotation;
@@ -652,9 +687,9 @@ public class Meeting : MonoBehaviour
 	return m.model_id;
     }
 
-    private void process_close_model_message(string json)
+    private void process_close_model_message(byte [] msg)
     {
-        CloseModelMessage m = JsonUtility.FromJson<CloseModelMessage>(json);
+        CloseModelMessage m = CloseModelMessage.deserialize(msg);
 	if (meeting_models.ContainsKey(m.model_id))
 	{
 	    Model model = meeting_models[m.model_id];
@@ -685,46 +720,16 @@ public class Meeting : MonoBehaviour
         throw new Exception("No network adapters with an IPv4 address in the system!");
     }
 
-    private void send_version(Peer peer)
-    {
-        VersionMessage message = new VersionMessage();
-	message.version = looksee_version;
-        string msg = JsonUtility.ToJson(message);
-        send_message(version_message_type, msg, peer);
-    }
-
-    private void process_version_message(string json, Peer peer)
-    {
-        VersionMessage m = JsonUtility.FromJson<VersionMessage>(json);
-        if (m.version.CompareTo(minimum_compatible_version) < 0)
-	{
-	   if (hosting())
-	   {
-	      send_error_message("Joining this meeting requires LookSee version >= "
-	                         + minimum_compatible_version
-			         + ". You are using version " + m.version, peer);
-           }
-	   else
-	   {
-	      ui.report_join_failed("Meeting host LookSee version " + m.version
-	      		            + " is too old to work with this version " + looksee_version
-				    + ". Host must use Looksee version >= " + minimum_compatible_version);
-	   }
-	   leave_meeting();
-	}
-    }
-
     private void send_error_message(string text, Peer peer)
     {
         ErrorMessage message = new ErrorMessage();
         message.error = text;
-        string msg = JsonUtility.ToJson(message);
-        send_message(error_message_type, msg, peer);
+        send_message(message.serialize(), peer);
     }
 
-    private void process_error_message(string json)
+    private void process_error_message(byte [] msg)
     {
-        ErrorMessage m = JsonUtility.FromJson<ErrorMessage>(json);
+        ErrorMessage m = ErrorMessage.deserialize(msg);
 	debug_log("Got error message " + m.error);
 	ui.show_error_message(m.error);
     }
@@ -742,8 +747,7 @@ public class Meeting : MonoBehaviour
                ModelPositionMessage message = new ModelPositionMessage(model_id, m.model_object.transform);
 	       if (room_coords != null)
 	           room_coords.to_room(ref message.position, ref message.rotation);
-               string msg = JsonUtility.ToJson(message);
-               send_message_to_all(model_position_message_type, msg);
+               send_message_to_all(message.serialize());
                count += 1;
            }
         }
@@ -763,8 +767,7 @@ public class Meeting : MonoBehaviour
            {
 	       model_shown[model_id] = shown;
                ModelShownMessage message = new ModelShownMessage(model_id, shown);
-               string msg = JsonUtility.ToJson(message);
-               send_message_to_all(model_shown_message_type, msg);
+               send_message_to_all(message.serialize());
                count += 1;
            }
         }
@@ -772,15 +775,15 @@ public class Meeting : MonoBehaviour
         return count;
     }
 
-    private void send_message(byte message_type, string msg, Peer peer)
+    private void send_message(byte [] msg, Peer peer)
     {
-	byte[] msg_chunk = message_bytes(message_type, msg);
+	byte[] msg_chunk = prepend_message_length(msg);
 	peer.send_bytes(msg_chunk);
     }
 
-    private void send_message_to_all(byte message_type, string msg, bool allow_drop = false)
+    private void send_message_to_all(byte [] msg, bool allow_drop = false)
     {
-	byte[] msg_chunk = message_bytes(message_type, msg);
+	byte[] msg_chunk = prepend_message_length(msg);
 	foreach (Peer peer in peers)
 	{
 	  bool drop = (allow_drop && peer.send_queue_length() >= 10);
@@ -792,7 +795,7 @@ public class Meeting : MonoBehaviour
     private void relay_message(byte[] msg, Peer from_peer)
     {
 	byte[] msg_chunk = prepend_message_length(msg);
-	bool allow_drop = (msg[0] == wand_position_message_type);
+	bool allow_drop = (msg[0] == WandPositionMessage.message_type);
 	foreach (Peer peer in peers)
 	{
 	  if (peer == from_peer)
@@ -876,8 +879,7 @@ public class Meeting : MonoBehaviour
     	    room_coords.to_room(ref message.right_position, ref message.right_rotation);
        	    room_coords.to_room(ref message.head_position, ref message.head_rotation);
         }
-        string msg = JsonUtility.ToJson(message);
-        send_message_to_all(wand_position_message_type, msg, true);
+        send_message_to_all(message.serialize(), true);
     }
 
     private int send_newly_opened_models()
@@ -893,14 +895,12 @@ public class Meeting : MonoBehaviour
 	      OpenModelMessage msg = new OpenModelMessage();
 	      msg.model_id = model_id;
 	      msg.model_name = model_name;
-	      byte[] gltf_data = File.ReadAllBytes(m.path);
-	      msg.set_gltf_data(gltf_data);
+	      msg.gltf_bytes = File.ReadAllBytes(m.path);
 	      Transform t = m.model_object.transform;
 	      msg.position = t.position;
 	      msg.rotation = t.rotation;
 	      msg.scale = t.localScale.x;
-	      string message = JsonUtility.ToJson(msg);
-	      send_message_to_all(open_model_message_type, message);
+	      send_message_to_all(msg.serialize());
 	      count += 1;
 	  }
         }
@@ -929,14 +929,12 @@ public class Meeting : MonoBehaviour
 	OpenModelMessage msg = new OpenModelMessage();
 	msg.model_id = model_id;
 	msg.model_name = model_name;
-	byte[] gltf_data = File.ReadAllBytes(m.path);
-	msg.set_gltf_data(gltf_data);
+	msg.gltf_bytes = File.ReadAllBytes(m.path);
 	Transform t = m.model_object.transform;
 	msg.position = t.position;
 	msg.rotation = t.rotation;
 	msg.scale = t.localScale.x;
-	string message = JsonUtility.ToJson(msg);
-	send_message(open_model_message_type, message, peer);
+	send_message(msg.serialize(), peer);
     }
 
     private string new_model_id()
@@ -961,8 +959,7 @@ public class Meeting : MonoBehaviour
 	      closed.Add(model_id);  // Don't modify meeting_models while iterating over it.
 	      CloseModelMessage msg = new CloseModelMessage();
 	      msg.model_id = model_id;
-	      string message = JsonUtility.ToJson(msg);
-	      send_message_to_all(close_model_message_type, message);
+	      send_message_to_all(msg.serialize());
       	      count += 1;
 	  }
         }
@@ -983,6 +980,7 @@ public class Meeting : MonoBehaviour
 [Serializable]
 public class ModelPositionMessage
 {
+    public const int message_type = 1;
     public string model_id;
     public Vector3 position;
     public Quaternion rotation;
@@ -994,6 +992,41 @@ public class ModelPositionMessage
         this.position = transform.position;
         this.rotation = transform.rotation;
         this.scale = transform.localScale.x;
+    }
+
+    public byte [] serialize()
+    {
+	return Messages.message_bytes(message_type, JsonUtility.ToJson(this));
+    }
+
+    static public ModelPositionMessage deserialize(byte [] msg)
+    {
+        string json = Encoding.UTF8.GetString(msg, 1, msg.Length-1);
+        return JsonUtility.FromJson<ModelPositionMessage>(json);
+    }
+}
+
+class Messages
+{
+    static public byte [] message_bytes(byte message_type, string json)
+    {
+        byte[] json_bytes = System.Text.Encoding.UTF8.GetBytes(json);
+	byte [] msg = new byte[1 + json_bytes.Length];
+	msg[0] = message_type;
+	json_bytes.CopyTo(msg, 1);
+	return msg;
+    }
+    static public byte [] message_bytes(byte message_type, string json, byte [] binary)
+    {
+        byte[] json_bytes = System.Text.Encoding.UTF8.GetBytes(json);
+	byte [] json_length = BitConverter.GetBytes((Int32)json_bytes.Length);
+	int length = 1 + 4 + json_bytes.Length + binary.Length;
+	byte [] msg = new byte[length];
+	msg[0] = message_type;
+	json_length.CopyTo(msg, 1);
+	json_bytes.CopyTo(msg, 1 + 4);
+	binary.CopyTo(msg, 1 + 4 + json_bytes.Length);
+	return msg;
     }
 }
 
@@ -1025,6 +1058,7 @@ class Position
 [Serializable]
 public class ModelShownMessage
 {
+    public const int message_type = 7;
     public string model_id;
     public bool shown;
 
@@ -1032,6 +1066,17 @@ public class ModelShownMessage
     {
       this.model_id = model_id;
       this.shown = shown;
+    }
+
+    public byte [] serialize()
+    {
+	return Messages.message_bytes(message_type, JsonUtility.ToJson(this));
+    }
+
+    static public ModelShownMessage deserialize(byte [] msg)
+    {
+        string json = Encoding.UTF8.GetString(msg, 1, msg.Length-1);
+        return JsonUtility.FromJson<ModelShownMessage>(json);
     }
 }
 
@@ -1111,6 +1156,7 @@ class MeetingWands
 [Serializable]
 public class WandPositionMessage
 {
+    public const int message_type = 2;
     public string device_id;
     public Vector3 left_position, right_position, head_position;
     public Quaternion left_rotation, right_rotation, head_rotation;
@@ -1124,6 +1170,17 @@ public class WandPositionMessage
         right_rotation = right.rotation;
 	head_position = head.position;
 	head_rotation = head.rotation;
+    }
+
+    public byte [] serialize()
+    {
+	return Messages.message_bytes(message_type, JsonUtility.ToJson(this));
+    }
+
+    static public WandPositionMessage deserialize(byte [] msg)
+    {
+        string json = Encoding.UTF8.GetString(msg, 1, msg.Length-1);
+        return JsonUtility.FromJson<WandPositionMessage>(json);
     }
 }
 
@@ -1250,40 +1307,93 @@ class SetRoomCoordinates
 [Serializable]
 public class OpenModelMessage
 {
+    public const int message_type = 3;
     public string model_id;	// Unique identifier
     public string model_name;	// File name
-    public string gltf_base64;
     public Vector3 position;
     public Quaternion rotation;
     public float scale;
 
-    public byte[] gltf_data()
+    [field: System.NonSerialized]
+    public byte [] gltf_bytes;
+
+    public byte [] serialize()
     {
-    	return Convert.FromBase64String(gltf_base64);
+	return Messages.message_bytes(message_type, JsonUtility.ToJson(this), gltf_bytes);
     }
-    
-    public void set_gltf_data(byte[] gltf)
+
+    static public OpenModelMessage deserialize(byte [] msg)
     {
-        gltf_base64 = Convert.ToBase64String(gltf);
+        // Message has type, JSON length, JSON header, GLTF bytes.
+        int json_size = BitConverter.ToInt32(msg, 1);
+        string json = Encoding.UTF8.GetString(msg, 1 + 4, json_size);
+        OpenModelMessage m = JsonUtility.FromJson<OpenModelMessage>(json);
+	int gltf_offset = 1 + 4 + json_size;
+	int gltf_size = msg.Length - gltf_offset;
+	byte [] gltf = new byte [gltf_size];
+	System.Array.Copy(msg, gltf_offset, gltf, 0, gltf_size);
+	m.gltf_bytes = gltf;
+	return m;
     }
 }
 
 [Serializable]
 public class CloseModelMessage
 {
+    public const int message_type = 4;
     public string model_id;
+
+    public byte [] serialize()
+    {
+	return Messages.message_bytes(message_type, JsonUtility.ToJson(this));
+    }
+
+    static public CloseModelMessage deserialize(byte [] msg)
+    {
+        string json = Encoding.UTF8.GetString(msg, 1, msg.Length-1);
+        return JsonUtility.FromJson<CloseModelMessage>(json);
+    }
 }
 
 [Serializable]
 public class VersionMessage
 {
+    public const int message_type = 5;
     public string version;
+
+    public VersionMessage(string version)
+    {
+      this.version = version;
+    }
+    
+    public byte [] serialize()
+    {
+	return Messages.message_bytes(message_type, JsonUtility.ToJson(this));
+    }
+
+    static public VersionMessage deserialize(byte [] msg)
+    {
+        string json = Encoding.UTF8.GetString(msg, 1, msg.Length-1);
+        return JsonUtility.FromJson<VersionMessage>(json);
+    }
 }
 
 [Serializable]
 public class ErrorMessage
 {
+    public const int message_type = 6;
     public string error;
+
+    public byte [] serialize()
+    {
+	return Messages.message_bytes(message_type, JsonUtility.ToJson(this));
+    }
+
+    static public ErrorMessage deserialize(byte [] msg)
+    {
+        string json = Encoding.UTF8.GetString(msg, 1, msg.Length-1);
+        return JsonUtility.FromJson<ErrorMessage>(json);
+    }
 }
 
 // Connection to another meeting participant.
