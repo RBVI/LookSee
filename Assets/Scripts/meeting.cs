@@ -896,23 +896,15 @@ public class Meeting : MonoBehaviour
 	int count = 0;
         foreach (Model m in models.open_models.models)
 	{
-	  if (!meeting_models.ContainsValue(m))
+	  if (!meeting_models.ContainsValue(m) && m.has_gltf_data())
 	  {
-	      string model_name = m.model_object.name;
-	      string model_id = new_model_id();
-	      meeting_models.Add(model_id, m);
-	      OpenModelMessage msg = new OpenModelMessage();
-	      msg.model_id = model_id;
-	      msg.model_name = model_name;
-	      msg.gltf_bytes = File.ReadAllBytes(m.path);
-	      Transform t = m.model_object.transform;
-	      msg.position = t.position;
-	      msg.rotation = t.rotation;
-	      msg.scale = t.localScale.x;
-	      send_message_to_all(msg.serialize());
-	      count += 1;
+	    string model_id = new_model_id();
+            OpenModelMessage msg = new OpenModelMessage(m, model_id);
+	    meeting_models.Add(model_id, m);
+	    send_message_to_all(msg.serialize());
+	    count += 1;
 	  }
-        }
+	}
 	return count;
     }
 
@@ -932,18 +924,13 @@ public class Meeting : MonoBehaviour
 
     private void send_model(Model m, Peer peer)
     {
-	string model_name = m.model_object.name;
-	string model_id = new_model_id();
-	meeting_models.Add(model_id, m);
-	OpenModelMessage msg = new OpenModelMessage();
-	msg.model_id = model_id;
-	msg.model_name = model_name;
-	msg.gltf_bytes = File.ReadAllBytes(m.path);
-	Transform t = m.model_object.transform;
-	msg.position = t.position;
-	msg.rotation = t.rotation;
-	msg.scale = t.localScale.x;
-	send_message(msg.serialize(), peer);
+        if (m.has_gltf_data())
+	{
+          string model_id = new_model_id();
+          OpenModelMessage msg = new OpenModelMessage(m, model_id);
+	  meeting_models.Add(model_id, m);
+	  send_message(msg.serialize(), peer);
+	}
     }
 
     private string new_model_id()
@@ -1334,6 +1321,21 @@ public class OpenModelMessage
     [field: System.NonSerialized]
     public byte [] gltf_bytes;
 
+    public OpenModelMessage(Model m, string model_id)
+    {
+	this.model_id = model_id;
+	model_name = m.model_object.name;
+	Transform t = m.model_object.transform;
+	position = t.position;
+	rotation = t.rotation;
+	scale = t.localScale.x;
+
+	if (m.gltf_data != null)
+	  gltf_bytes = m.gltf_data;
+        else if (File.Exists(m.path))
+	  gltf_bytes = File.ReadAllBytes(m.path);
+    }
+    
     public byte [] serialize()
     {
 	return Messages.message_bytes(message_type, JsonUtility.ToJson(this), gltf_bytes);

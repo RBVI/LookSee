@@ -95,6 +95,7 @@ public class LoadModels : MonoBehaviour
     if (success) {
       center_and_scale_model(model_object);
       Model m = new Model(model_name, model_object);
+      m.gltf_data = gltf_data;
       return m;
     } else {
       Debug.Log("gltfImport failed instantiating " + model_name);
@@ -260,6 +261,7 @@ public class Models
 public class Model
 {
   public string path;
+  public byte [] gltf_data;
   public DateTime last_modified;
   public GameObject model_object;
 
@@ -268,6 +270,11 @@ public class Model
     this.path = path;
     this.last_modified = File.GetLastWriteTime(path);
     this.model_object = model_object;
+  }
+
+  public bool has_gltf_data()
+  {
+    return gltf_data != null || File.Exists(path);
   }
 
   public bool file_changed()
