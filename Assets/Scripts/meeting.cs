@@ -372,10 +372,7 @@ public class Meeting : MonoBehaviour
           send_prefix(peer);
 	  send_version(peer);
 	  if (await check_for_compatible_version(peer))
-	  {
-	    send_all_open_models(peer);
             await process_messages(peer);
-          }
 	}
 	finally
 	{
@@ -489,8 +486,9 @@ public class Meeting : MonoBehaviour
 	try
 	{
 	    peers.Add(peer);
-	    send_all_open_models(peer);
-	    return await process_messages(peer);
+	    send_all_meeting_models(peer);
+	    int message_count = await process_messages(peer);
+	    return message_count;
         }
         catch (Exception e)
         {
@@ -681,13 +679,19 @@ public class Meeting : MonoBehaviour
     {
         OpenModelMessage m = OpenModelMessage.deserialize(msg);
 	Model model = await models.load_gltf_bytes(m.gltf_bytes, m.model_name);
-	Transform transform = model.model_object.transform;
-	transform.position = m.position;
-	transform.rotation = m.rotation;
-	transform.localScale = new Vector3(m.scale, m.scale, m.scale);
-	meeting_models.Add(m.model_id, model);
-        record_latest_position(m.model_id);
-	models.open_models.add(model);
+	if (model == null)
+	  ui.show_error_message("Failed opening gltf for " + m.model_name +
+	  			" with " + m.gltf_bytes.Length + " bytes");
+	else
+	{
+	  Transform transform = model.model_object.transform;
+	  transform.position = m.position;
+	  transform.rotation = m.rotation;
+	  transform.localScale = new Vector3(m.scale, m.scale, m.scale);
+	  meeting_models.Add(m.model_id, model);
+          record_latest_position(m.model_id);
+	  models.open_models.add(model);
+	}
 	return m.model_id;
     }
 
@@ -899,8 +903,8 @@ public class Meeting : MonoBehaviour
 	  if (!meeting_models.ContainsValue(m) && m.has_gltf_data())
 	  {
 	    string model_id = new_model_id();
-            OpenModelMessage msg = new OpenModelMessage(m, model_id);
 	    meeting_models.Add(model_id, m);
+            OpenModelMessage msg = new OpenModelMessage(m, model_id);
 	    send_message_to_all(msg.serialize());
 	    count += 1;
 	  }
@@ -908,18 +912,10 @@ public class Meeting : MonoBehaviour
 	return count;
     }
 
-    private int send_all_open_models(Peer peer)
+    private void send_all_meeting_models(Peer peer)
     {
-	int count = 0;
-        foreach (Model m in models.open_models.models)
-	{
-	  if (meeting_models.ContainsValue(m))
-	  {
-	    send_model(m, peer);
-            count += 1;
-	  }
-        }
-	return count;
+        foreach (Model m in meeting_models.Values)
+	  send_model(m, peer);
     }
 
     private void send_model(Model m, Peer peer)
@@ -927,8 +923,8 @@ public class Meeting : MonoBehaviour
         if (m.has_gltf_data())
 	{
           string model_id = new_model_id();
-          OpenModelMessage msg = new OpenModelMessage(m, model_id);
 	  meeting_models.Add(model_id, m);
+          OpenModelMessage msg = new OpenModelMessage(m, model_id);
 	  send_message(msg.serialize(), peer);
 	}
     }
