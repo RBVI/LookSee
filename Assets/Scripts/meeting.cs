@@ -437,12 +437,15 @@ public class Meeting : MonoBehaviour
         ui.left_meeting();	  
     }
 
-    void remove_wands(Peer peer)
+    void remove_wands(string device_id)
     {
-        if (wands.ContainsKey(peer.device_id))
+	if (device_id == null)
+	  return;
+        if (wands.ContainsKey(device_id))
 	{
-	  wands[peer.device_id].remove_wand_depictions();
-	  wands.Remove(peer.device_id);
+	  wands[device_id].remove_wand_depictions();
+	  wands.Remove(device_id);
+	  ui.show_error_message("Removed wands for " + device_id);
         }
     }
     
@@ -497,8 +500,8 @@ public class Meeting : MonoBehaviour
 	finally
 	{
 	    peers.Remove(peer);
-	    remove_wands(peer);
-	    // TODO: Tell other participants to remove this one's wands.
+	    remove_wands(peer.device_id);
+	    send_participant_left_message(peer.device_id);  // Tell other participants to remove this one's wands.
 	    peer.close();
 	}
 	
@@ -590,6 +593,8 @@ public class Meeting : MonoBehaviour
             await process_open_model_message(msg);
         else if (message_type == CloseModelMessage.message_type)
             process_close_model_message(msg);
+        else if (message_type == ParticipantLeftMessage.message_type)
+            process_participant_left_message(msg);
         else if (message_type == ErrorMessage.message_type)
             process_error_message(msg);
 	else
@@ -697,6 +702,12 @@ public class Meeting : MonoBehaviour
 	    meeting_models.Remove(m.model_id);
 	}
     }
+
+    private void process_participant_left_message(byte [] msg)
+    {
+        ParticipantLeftMessage m = ParticipantLeftMessage.deserialize(msg);
+	remove_wands(m.device_id);
+    }
     
     public void stop_listening()
     {
@@ -722,8 +733,7 @@ public class Meeting : MonoBehaviour
 
     private void send_error_message(string text, Peer peer)
     {
-        ErrorMessage message = new ErrorMessage();
-        message.error = text;
+        ErrorMessage message = new ErrorMessage(text);
         send_message(message.serialize(), peer);
     }
 
@@ -967,6 +977,14 @@ public class Meeting : MonoBehaviour
 	  meeting_models.Remove(model_id);
 
 	return count;
+    }
+
+    private void send_participant_left_message(string device_id)
+    {
+	if (device_id == null)
+	  return;
+        ParticipantLeftMessage message = new ParticipantLeftMessage(device_id);
+        send_message_to_all(message.serialize());
     }
 
     private void debug_log(string message)
@@ -1384,6 +1402,11 @@ public class ErrorMessage
     public const int message_type = 6;
     public string error;
 
+    public ErrorMessage(string text)
+    {
+	error = text;
+    }
+    
     public byte [] serialize()
     {
 	return Messages.message_bytes(message_type, JsonUtility.ToJson(this));
@@ -1396,11 +1419,34 @@ public class ErrorMessage
     }
 }
 
+[Serializable]
+public class ParticipantLeftMessage
+{
+    public const int message_type = 8;
+    public string device_id;
+
+    public ParticipantLeftMessage(string device_id)
+    {
+	this.device_id = device_id;
+    }
+    
+    public byte [] serialize()
+    {
+	return Messages.message_bytes(message_type, JsonUtility.ToJson(this));
+    }
+
+    static public ParticipantLeftMessage deserialize(byte [] msg)
+    {
+        string json = Encoding.UTF8.GetString(msg, 1, msg.Length-1);
+        return JsonUtility.FromJson<ParticipantLeftMessage>(json);
+    }
+}
+
 // Connection to another meeting participant.
 public class Peer
 {
     public NetworkStream stream;
-    public string device_id = "unknown";
+    public string device_id;
     private Queue<byte[]> send_message_queue = new Queue<byte[]>();
     private bool have_send_task = false;	// Have at most 1 task send messages.
 
