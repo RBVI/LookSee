@@ -171,8 +171,8 @@ using TMPro;                            // use TextMeshProUGUI
 public class Meeting : MonoBehaviour
 {
     public LoadModels models;                     // Open models for adjusting positions.
-    Dictionary<string, Position> model_positions; // Last sent model positions.
-    Dictionary<string, bool> model_shown;	  // Last sent model show/hide state.
+    private Dictionary<string, MeetingModel> meeting_models;   // Map model identifier to MeetingModel
+
     public Transform left_wand, right_wand;       // For reporting positions to other participants.
     public Transform head;			  // For reporting head position to others.
     public ModelUI ui;				  // Use ui.settings
@@ -190,13 +190,10 @@ public class Meeting : MonoBehaviour
     private RoomCoordinates room_coords;
     private SetRoomCoordinates set_room_coords;		// Place two markers to define x-axis.
     public GameObject coord_marker1_prefab, coord_marker2_prefab;
-    private Dictionary<string, Model> meeting_models;   // Map model identifier to Model
 
     void Start()
     {
-        model_positions = new Dictionary<string, Position>();
-        model_shown = new Dictionary<string, bool>();
-	meeting_models = new Dictionary<string, Model>();
+	meeting_models = new Dictionary<string, MeetingModel>();
     }
     
     void Update()
@@ -425,8 +422,6 @@ public class Meeting : MonoBehaviour
 	    peer.close();
 	peers.Clear();
 
-	model_positions.Clear();
-	model_shown.Clear();
 	meeting_models.Clear();
 	foreach (MeetingWands w in wands.Values)
 	   w.remove_wand_depictions();
@@ -609,30 +604,10 @@ public class Meeting : MonoBehaviour
             debug_log("Got model motion, but found no model id " + m.model_id);
             return;
         }
-        Model model = meeting_models[m.model_id];
 	if (room_coords != null)
 	   room_coords.from_room(ref m.position, ref m.rotation);
-        Transform t = model.model_object.transform;
-        bool position_changed = false;
-        if (m.position != Vector3.zero)
-        {
-            t.position = m.position;
-            position_changed = true;
-        }
-        if (m.rotation.x != 0 || m.rotation.y != 0 || m.rotation.z != 0 || m.rotation.w != 0)
-        {
-            t.rotation = m.rotation;
-            position_changed = true;
-        }
-        if (m.scale != 0)
-        {
-            t.localScale = new Vector3(m.scale, m.scale, m.scale);
-            position_changed = true;
-        }
-        if (position_changed)
-	{
-            record_latest_position(m.model_id);
-        }
+        MeetingModel mm = meeting_models[m.model_id];
+	mm.update_position(m.position, m.rotation, m.scale);
     }
 
     private void process_model_shown_message(byte [] msg)
@@ -643,9 +618,12 @@ public class Meeting : MonoBehaviour
             debug_log("Got model shown, but found no model id " + m.model_id);
             return;
         }
-        Model model = meeting_models[m.model_id];
-	ui.show_or_hide_model(m.shown, model);
-	ui.update_ui_controls();
+        MeetingModel mm = meeting_models[m.model_id];
+	if (!mm.model_closed())
+	{
+	  ui.show_or_hide_model(m.shown, mm.model);
+	  ui.update_ui_controls();
+        }
     }
 
     private void process_wand_position_message(byte [] msg, Peer peer)
@@ -684,12 +662,9 @@ public class Meeting : MonoBehaviour
 	  			" with " + m.gltf_bytes.Length + " bytes");
 	else
 	{
-	  Transform transform = model.model_object.transform;
-	  transform.position = m.position;
-	  transform.rotation = m.rotation;
-	  transform.localScale = new Vector3(m.scale, m.scale, m.scale);
-	  meeting_models.Add(m.model_id, model);
-          record_latest_position(m.model_id);
+	  MeetingModel mm = new MeetingModel(model, m.model_id);
+	  mm.update_position(m.position, m.rotation, m.scale);
+	  meeting_models.Add(mm.model_id, mm);
 	  models.open_models.add(model);
 	}
 	return m.model_id;
@@ -700,8 +675,9 @@ public class Meeting : MonoBehaviour
         CloseModelMessage m = CloseModelMessage.deserialize(msg);
 	if (meeting_models.ContainsKey(m.model_id))
 	{
-	    Model model = meeting_models[m.model_id];
-	    models.open_models.remove_model(model);
+	    MeetingModel mm = meeting_models[m.model_id];
+	    if (!mm.model_closed())
+	      models.open_models.remove_model(mm.model);
 	    meeting_models.Remove(m.model_id);
 	}
     }
@@ -750,20 +726,16 @@ public class Meeting : MonoBehaviour
     private int send_new_model_positions()
     {
         int count = 0;
-        foreach (var item in meeting_models)
-        {
-	   string model_id = item.Key;
-           if (position_changed(model_id))
+        foreach (MeetingModel mm in meeting_models.Values)
+           if (mm.position_changed())
            {
-               record_latest_position(model_id);
-	       Model m = item.Value;
-               ModelPositionMessage message = new ModelPositionMessage(model_id, m.model_object.transform);
+               mm.record_latest_position();
+               ModelPositionMessage message = new ModelPositionMessage(mm.model_id, mm.model.model_object.transform);
 	       if (room_coords != null)
 	           room_coords.to_room(ref message.position, ref message.rotation);
                send_message_to_all(message.serialize());
                count += 1;
            }
-        }
         
         return count;
     }
@@ -771,19 +743,18 @@ public class Meeting : MonoBehaviour
     private int send_model_shown_or_hidden()
     {
         int count = 0;
-        foreach (var item in meeting_models)
-        {
-	   string model_id = item.Key;
-           Model m = item.Value;
-	   bool shown = m.model_object.activeSelf;
-           if (!model_shown.ContainsKey(model_id) || model_shown[model_id] != shown)
-           {
-	       model_shown[model_id] = shown;
-               ModelShownMessage message = new ModelShownMessage(model_id, shown);
-               send_message_to_all(message.serialize());
-               count += 1;
-           }
-        }
+        foreach (MeetingModel mm in meeting_models.Values)
+	  if (!mm.model_closed())
+	  {
+	    bool shown = mm.model.model_object.activeSelf;
+            if (mm.shown != shown)
+            {
+	      mm.shown = shown;
+              ModelShownMessage message = new ModelShownMessage(mm.model_id, shown);
+              send_message_to_all(message.serialize());
+              count += 1;
+            }
+	  }
         
         return count;
     }
@@ -853,34 +824,11 @@ public class Meeting : MonoBehaviour
         msg.CopyTo(msg_chunk, chunk_size_bytes.Length);
 	return msg_chunk;
     }
-	
-    private bool position_changed(string model_id)
-    {
-	if (!meeting_models.ContainsKey(model_id))
-	    return false;
-
-        if (!model_positions.ContainsKey(model_id))
-	    return true;
-	Model model = meeting_models[model_id];
-	bool changed = model_positions[model_id].moved(model.model_object.transform);
-	return changed;
-    }
-
-    private void record_latest_position(string model_id)
-    {
-       if (!meeting_models.ContainsKey(model_id))
-           return;
-       Model model = meeting_models[model_id];
-       if (!model_positions.ContainsKey(model_id))
-           model_positions.Add(model_id, new Position(model.model_object.transform));
-       else
-           model_positions[model_id].update_position(model.model_object.transform);
-    }
 
     private void record_current_positions()
     {
-        foreach (string model_id in meeting_models.Keys)
-          record_latest_position(model_id);
+        foreach (MeetingModel mm in meeting_models.Values)
+          mm.record_latest_position();
     }
 
     private void send_wand_positions()
@@ -899,62 +847,48 @@ public class Meeting : MonoBehaviour
     {
 	int count = 0;
         foreach (Model m in models.open_models.models)
-	{
-	  if (!meeting_models.ContainsValue(m) && m.has_gltf_data())
+	  if (m.has_gltf_data() && !have_meeting_model(m))
 	  {
-	    string model_id = new_model_id();
-	    meeting_models.Add(model_id, m);
-            OpenModelMessage msg = new OpenModelMessage(m, model_id);
+	    MeetingModel mm = new MeetingModel(m);
+	    meeting_models.Add(mm.model_id, mm);
+            OpenModelMessage msg = new OpenModelMessage(mm);
 	    send_message_to_all(msg.serialize());
 	    count += 1;
 	  }
-	}
 	return count;
     }
 
+    private bool have_meeting_model(Model m)
+    {
+        foreach (MeetingModel mm in meeting_models.Values)
+	  if (mm.model == m)
+	    return true;
+	return false;
+    }
+    
     private void send_all_meeting_models(Peer peer)
     {
-        foreach (Model m in meeting_models.Values)
-	  send_model(m, peer);
-    }
-
-    private void send_model(Model m, Peer peer)
-    {
-        if (m.has_gltf_data())
-	{
-          string model_id = new_model_id();
-	  meeting_models.Add(model_id, m);
-          OpenModelMessage msg = new OpenModelMessage(m, model_id);
-	  send_message(msg.serialize(), peer);
-	}
-    }
-
-    private string new_model_id()
-    {
-       byte[] key_bytes = new byte[6];
-       System.Random r = new System.Random();
-       r.NextBytes(key_bytes);
-       string model_id = Convert.ToBase64String(key_bytes);
-       return model_id;
+        foreach (MeetingModel mm in meeting_models.Values)
+	  if (!mm.model_closed() && mm.model.has_gltf_data())
+	  {
+	    OpenModelMessage msg = new OpenModelMessage(mm);
+	    send_message(msg.serialize(), peer);
+	  }
     }
     
     private int send_newly_closed_models()
     {
 	int count = 0;
 	List<string> closed = new List<string>();
-        foreach (var item in meeting_models)
-	{
-	  Model m = item.Value;
-	  if (!models.open_models.models.Contains(m))
+        foreach (MeetingModel mm in meeting_models.Values)
+	  if (!models.open_models.models.Contains(mm.model))
 	  {
-	      string model_id = item.Key;
-	      closed.Add(model_id);  // Don't modify meeting_models while iterating over it.
-	      CloseModelMessage msg = new CloseModelMessage();
-	      msg.model_id = model_id;
-	      send_message_to_all(msg.serialize());
-      	      count += 1;
+	    closed.Add(mm.model_id);  // Don't modify meeting_models while iterating over it.
+	    CloseModelMessage msg = new CloseModelMessage(mm.model_id);
+	    send_message_to_all(msg.serialize());
+      	    count += 1;
 	  }
-        }
+
 	foreach(string model_id in closed)
 	  meeting_models.Remove(model_id);
 
@@ -1030,28 +964,83 @@ class Messages
     }
 }
 
-class Position
+public class MeetingModel
 {
-    public Vector3 position;
+    public Model model;
+    public string model_id;
+    public bool shown;
+    public Vector3 position;	// Last meeting position of model.
     public Quaternion rotation;
     public Vector3 scale;
 
-    public Position(Transform t)
+    public MeetingModel(Model model, string model_id = null)
     {
-        update_position(t);
+	this.model = model;
+	shown = model.model_object.activeSelf;
+	this.model_id = (model_id == null ? new_model_id() : model_id);
+        record_latest_position();
     }
 
-    public void update_position(Transform t)
+    public bool model_closed()
     {
-        position = t.position;
-        rotation = t.rotation;
-        scale = t.localScale;
+	return model.model_object == null;
     }
 
-    public bool moved(Transform t)
+    public bool position_changed()
     {
+	if (model_closed())
+	    return false;
+	Transform t = model.model_object.transform;
         bool same = (t.position == position && t.rotation == rotation && t.localScale == scale);
         return !same;
+    }
+
+    public bool update_position(Vector3 position, Quaternion rotation, float scale)
+    {
+        if (model_closed())
+	  return false;
+
+        Transform t = model.model_object.transform;
+        bool position_changed = false;
+        if (position != Vector3.zero)
+        {
+            t.position = position;
+            position_changed = true;
+        }
+        if (rotation.x != 0 || rotation.y != 0 || rotation.z != 0 || rotation.w != 0)
+        {
+            t.rotation = rotation;
+            position_changed = true;
+        }
+        if (scale != 0)
+        {
+            t.localScale = new Vector3(scale, scale, scale);
+            position_changed = true;
+        }
+
+        if (position_changed)
+            record_latest_position();
+
+	return position_changed;
+    }
+
+    public void record_latest_position()
+    {
+       if (model_closed())
+         return;
+       Transform t = model.model_object.transform;
+       position = t.position;
+       rotation = t.rotation;
+       scale = t.localScale;
+    }
+
+    private string new_model_id()
+    {
+       byte[] key_bytes = new byte[6];
+       System.Random r = new System.Random();
+       r.NextBytes(key_bytes);
+       string model_id = Convert.ToBase64String(key_bytes);
+       return model_id;
     }
 }
 
@@ -1317,9 +1306,10 @@ public class OpenModelMessage
     [field: System.NonSerialized]
     public byte [] gltf_bytes;
 
-    public OpenModelMessage(Model m, string model_id)
+    public OpenModelMessage(MeetingModel mm)
     {
-	this.model_id = model_id;
+	this.model_id = mm.model_id;
+	Model m = mm.model;
 	model_name = m.model_object.name;
 	Transform t = m.model_object.transform;
 	position = t.position;
@@ -1358,6 +1348,11 @@ public class CloseModelMessage
     public const int message_type = 4;
     public string model_id;
 
+    public CloseModelMessage(string model_id)
+    {
+        this.model_id = model_id;
+    }
+    
     public byte [] serialize()
     {
 	return Messages.message_bytes(message_type, JsonUtility.ToJson(this));
