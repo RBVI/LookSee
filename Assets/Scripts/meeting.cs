@@ -445,7 +445,6 @@ public class Meeting : MonoBehaviour
 	{
 	  wands[device_id].remove_wand_depictions();
 	  wands.Remove(device_id);
-	  ui.show_error_message("Removed wands for " + device_id);
         }
     }
     
