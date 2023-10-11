@@ -158,6 +158,7 @@
 //
 using System.Collections.Generic;        // use Dictionary
 using System.IO;                        // use File
+using System.IO.Compression;		// use GZipStream
 using System.Net.Sockets;                // use Socket
 using System.Net;                        // use IPAddress
 using System.Text;                        // use Encoding
@@ -853,6 +854,17 @@ public class Meeting : MonoBehaviour
 	    meeting_models.Add(mm.model_id, mm);
             OpenModelMessage msg = new OpenModelMessage(mm);
 	    send_message_to_all(msg.serialize());
+
+	/*
+	byte [] binary = msg.gltf_bytes;
+	float t0 = Time.realtimeSinceStartup;
+	byte [] bz = Messages.compress(binary);
+        float t1 = Time.realtimeSinceStartup;
+	byte [] b = Messages.decompress(bz);
+        float t2 = Time.realtimeSinceStartup;
+	ui.show_error_message("Compressed " + binary.Length + " bytes to " + bz.Length + " bytes in " + (t1-t0) + " seconds, decompressed to " + b.Length + " bytes in " + (t2-t1) + " seconds");
+	*/
+
 	    count += 1;
 	  }
 	return count;
@@ -961,6 +973,33 @@ class Messages
 	json_bytes.CopyTo(msg, 1 + 4);
 	binary.CopyTo(msg, 1 + 4 + json_bytes.Length);
 	return msg;
+    }
+
+    static public byte [] compress(byte [] data)
+    {
+        byte [] gzipped_data;
+	using (var data_stream = new MemoryStream(data))
+           using (var gzipped_stream = new MemoryStream(data.Length))
+	   {
+	      using (var compressor = new GZipStream(gzipped_stream, CompressionMode.Compress))
+//	      using (var compressor = new GZipStream(gzipped_stream, System.IO.Compression.CompressionLevel.Fastest))
+		  data_stream.CopyTo(compressor);
+ 	      gzipped_data = gzipped_stream.ToArray();
+           }
+	return gzipped_data;
+    }
+
+    static public byte [] decompress(byte [] gzipped_data)
+    {
+        byte [] data;
+	using (var data_stream = new MemoryStream())
+            using (var gzipped_stream = new MemoryStream(gzipped_data))
+	    {
+   	        using (var decompressor = new GZipStream(gzipped_stream, CompressionMode.Decompress))
+	            decompressor.CopyTo(data_stream);
+		data = data_stream.ToArray();
+	    }
+	return data;
     }
 }
 
