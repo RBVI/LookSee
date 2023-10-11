@@ -243,6 +243,7 @@ public class Models
   {
     models.Remove(m);
     GameObject.Destroy(m.model_object);
+    m.model_object = null;
     update_model_ui();
   }
 
