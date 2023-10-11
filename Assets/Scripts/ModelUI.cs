@@ -13,9 +13,12 @@ public class ModelUI : MonoBehaviour
     public GameObject models_pane, files_pane, meeting_pane, options_pane;
     public GameObject hide_show_close_prefab;
     public GameObject open_file_prefab;
+    public GameObject scroll_files_up_button, scroll_files_down_button;
     public GameObject no_models_message, no_files_message;
     public GameObject options;
     public GameObject error_panel;
+    private const int max_files = 6;		// Maximum number of files shown in panel.
+    private int top_file = 0;			// Index of top shown file.
     public TextMeshProUGUI error_text;
     public float check_for_files_interval = 5.0f;	// seconds
     public bool open_new = false;
@@ -35,7 +38,7 @@ public class ModelUI : MonoBehaviour
     public float initial_distance = 0.8f;	// How far to place UI in front of eyes, meters.
     private bool initial_position_set = false;
     public LookSeeSettings settings = new LookSeeSettings();
-    
+
     void Start()
     {
       settings.load();
@@ -113,32 +116,62 @@ public class ModelUI : MonoBehaviour
 
       // Make new Open buttons.
       string[] files = load_models.gltf_file_paths();
-      float y = -140f;	// millimeters
-      int h = (files.Length + 1) / 2, count = 0;
-      foreach (string path in files)
+      Array.Sort(files);
+      if (top_file > 0 && files.Length - top_file < max_files)
+        top_file = Math.Max(0, files.Length - max_files);  // Show as many files as possible.
+      float y = 160f;	// millimeters
+      int files_to_show = Math.Min(files.Length - top_file, max_files);
+      if (files_to_show < max_files)
+        y -= 60 * (max_files - files_to_show);
+      for (int i = 0 ; i < files_to_show ; ++i)
 	{
-	  // Position buttons in 2 columns.
-	  float x = (count >= h ? 400f : 0f);  // millimeters
-	  if (count == h)
-	    y -= h * 60f;
-          count += 1;
+	  string path = files[top_file + i];
+	  
+	  // Create one row per file with Open and Delete buttons.
 	  GameObject row = Instantiate(open_file_prefab,
-	                               new Vector3(x,y,0f), Quaternion.identity);
+	                               new Vector3(0f,y,0f), Quaternion.identity);
 	  row.transform.SetParent(files_pane.transform, false);
 	  // row.transform.SetSiblingIndex(0);  // Stack beneath meeting keypad
-	  ButtonSelect bs = row.GetComponentInChildren<ButtonSelect>();
-	  // Register open file callback function.
+
+	  // Set Open button callback.
+	  GameObject open_button = row.transform.Find("Open button").gameObject;
+	  ButtonSelect obs = open_button.GetComponent<ButtonSelect>();
 	  Func<Task> open_file = async () => await load_models.load_gltf_file(path);
-          bs.async_action = open_file;
-	  // Set user interface button text
+          obs.async_action = open_file;   // Register open file callback function.
+
+	  // Set Delete button callback.
+  	  GameObject delete_button = row.transform.Find("Delete button").gameObject;
+	  ButtonSelect dbs = delete_button.GetComponent<ButtonSelect>();
+          Action<string> delete_file = (string button_name) => { load_models.remove_gltf_file(path);
+	  		 	       	       		         update_files_pane(); };
+          dbs.action = delete_file;  // Register delete file callback function.
+
+	  // Set file name label.
           string filename = Path.GetFileNameWithoutExtension(path);
 	  GameObject name = row.transform.Find("Name").gameObject;
 	  name.GetComponentInChildren<TextMeshProUGUI>().text = filename;
-	  y += 60f;
+
+	  y -= 60f;
 	}
 
+      scroll_files_up_button.SetActive(top_file > 0);
+      scroll_files_down_button.SetActive(top_file + max_files < files.Length);
+        
       no_files_message.SetActive(files.Length == 0);
     }
+
+  public void scroll_files_down()
+  {
+    top_file += max_files;
+    update_files_pane();
+    
+  }
+
+  public void scroll_files_up()
+  {
+    top_file = Math.Max(0, top_file - max_files);
+    update_files_pane();
+  }
 
   void position_ui_panel(InputDevice device)
   {

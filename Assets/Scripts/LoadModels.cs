@@ -205,6 +205,14 @@ public class LoadModels : MonoBehaviour
     return num_opened;
   }
 
+  public bool remove_gltf_file(string path)
+  {
+    if (!File.Exists(path))
+      return false;
+    File.Delete(path);
+    return true;
+  }
+
 }
 
 public class Models
