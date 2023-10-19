@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.EventSystems; 	 	// use EventSystem
 using UnityEngine.InputSystem;			// use InputAction
 using UnityEngine.InputSystem.Utilities;	// use device.usages.Contains()
 using UnityEngine.InputSystem.XR; 		// use PoseState
@@ -27,6 +28,10 @@ public class PositionModel : MonoBehaviour
       if (!context.performed)
         return;
 
+      if (EventSystem.current.currentSelectedGameObject != null &&
+          EventSystem.current.currentSelectedGameObject.activeInHierarchy)
+        return;  // Don't drag if a button is selected and UI is shown.
+	
       Wand wand;
       WandModelMover wand_mover, other_wand_mover;
       if (!which_wand(context, out wand, out wand_mover, out other_wand_mover))
