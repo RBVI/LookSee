@@ -28,7 +28,9 @@ public class PositionModel : MonoBehaviour
       if (!context.performed)
         return;
 
-      if (EventSystem.current.currentSelectedGameObject != null &&
+      bool pressed = (context.action.ReadValue<float>() > 0);
+      if (pressed &&
+          EventSystem.current.currentSelectedGameObject != null &&
           EventSystem.current.currentSelectedGameObject.activeInHierarchy)
         return;  // Don't drag if a button is selected and UI is shown.
 	
@@ -37,7 +39,6 @@ public class PositionModel : MonoBehaviour
       if (!which_wand(context, out wand, out wand_mover, out other_wand_mover))
         return;
 
-      bool pressed = (context.action.ReadValue<float>() > 0);
       wand_mover.set_button_pressed(pressed, wand, models.open_models);
 
 //      debug.GetComponentInChildren<TextMeshProUGUI>().text = "Grab " + context.action.name + " " + context.action.phase;
