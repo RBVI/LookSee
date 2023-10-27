@@ -162,6 +162,17 @@
                 },
                 {
                     "name": "",
+                    "id": "2981aec7-34a5-4f7f-bae8-9eb835654b1f",
+                    "path": "<OculusTouchController>/start",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "XR",
+                    "action": "ShowOrHideUI",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                },
+                {
+                    "name": "",
                     "id": "275b55f1-3c7f-4d38-982d-1717c58e9ce5",
                     "path": "<OculusTouchController>/secondaryButton",
                     "interactions": "",
