@@ -46,7 +46,7 @@ public class ModelUI : MonoBehaviour
       // Position and show UI only after VR headset position and view direction are known.
       OVRManager.TrackingAcquired += set_initial_ui_panel_position_delayed;
 
-      no_files_message.GetComponent<TextMeshProUGUI>().text += " " + Application.persistentDataPath;
+      // no_files_message.GetComponent<TextMeshProUGUI>().text += " " + Application.persistentDataPath;
       update_files_pane();
 
       ip_address.text = settings.meeting_last_join_ip_address;
