@@ -23,6 +23,7 @@ public class ModelUI : MonoBehaviour
     public float check_for_files_interval = 5.0f;	// seconds
     public bool open_new = false;
     public Toggle open_new_toggle, show_room_toggle, edge_smoothing_toggle;
+    public Toggle keep_aligned_toggle;
     public LoadModels load_models;
     public FileReceiver file_receiver;
     public Meeting meeting;
@@ -52,6 +53,7 @@ public class ModelUI : MonoBehaviour
       ip_address.text = settings.meeting_last_join_ip_address;
       show_room_toggle.isOn = settings.show_room;
       edge_smoothing_toggle.isOn = settings.edge_smoothing;
+      keep_aligned_toggle.isOn = settings.keep_aligned;
 
       InvokeRepeating("open_new_files", check_for_files_interval, check_for_files_interval);
     }
@@ -266,6 +268,18 @@ public class ModelUI : MonoBehaviour
     settings.edge_smoothing = smooth;
     settings.save();
   }
+
+  public void set_keep_aligned(bool align)
+  {
+    load_models.open_models.keep_aligned = align;
+    settings.keep_aligned = align;
+    settings.save();
+  }
+  
+  public void original_alignment(string button_name)
+  {
+    load_models.open_models.restore_original_alignment();
+  }
   
   public void open_new_toggled(bool open)
   {
@@ -408,7 +422,7 @@ public class LookSeeSettings
 {
   public string meeting_last_join_ip_address;
   public List<MeetingCoordinates> meeting_coordinates;
-  public bool show_room = true, edge_smoothing = true;
+  public bool show_room = true, edge_smoothing = true, keep_aligned = false;
 
   private string settings_path()
   {

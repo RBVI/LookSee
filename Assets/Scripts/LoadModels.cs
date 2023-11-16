@@ -33,7 +33,7 @@ public class LoadModels : MonoBehaviour
     if (files.Length == 0)
     {
       example_model.SetActive(true);
-      Model model = new Model("SARS-CoV-2 Spike", example_model);
+      Model model = new Model("SARS-CoV-2 Spike", example_model, 1.0f);
       open_models.add(model);
     }
 
@@ -61,14 +61,16 @@ public class LoadModels : MonoBehaviour
 
     string filename = Path.GetFileName(path);
     GameObject model_object = new GameObject(filename);
-    model_object.transform.parent = gameObject.transform;
+//    model_object.transform.parent = gameObject.transform;
     var instantiator = new GameObjectInstantiator(gltfImport, model_object.transform);
     success = await gltfImport.InstantiateSceneAsync(instantiator);
 
     if (success) {
       Debug.Log("Loaded " + path);
-      center_and_scale_model(model_object);
-      Model m = new Model(path, model_object);
+      float scaled = center_and_scale_model(model_object);
+      // Set parent after center and bounds so parent transform does not effect center and scale.
+      model_object.transform.SetParent(gameObject.transform);
+      Model m = new Model(path, model_object, scaled);
       open_models.add(m);
       return m;
     } else {
@@ -88,13 +90,15 @@ public class LoadModels : MonoBehaviour
     }
 
     GameObject model_object = new GameObject(model_name);
-    model_object.transform.parent = gameObject.transform;
+//    model_object.transform.SetParent(gameObject.transform, false);
     var instantiator = new GameObjectInstantiator(gltfImport, model_object.transform);
     success = await gltfImport.InstantiateSceneAsync(instantiator);
 
     if (success) {
-      center_and_scale_model(model_object);
-      Model m = new Model(model_name, model_object);
+      float scaled = center_and_scale_model(model_object);
+      // Set after center and bounds so parent transform does not effect center and scale.
+      model_object.transform.SetParent(gameObject.transform);
+      Model m = new Model(model_name, model_object, scaled);
       m.gltf_data = gltf_data;
       return m;
     } else {
@@ -103,7 +107,7 @@ public class LoadModels : MonoBehaviour
     return null;
   }
 
-  void center_and_scale_model(GameObject model_object)
+  float center_and_scale_model(GameObject model_object)
   {
     // Scale each scene to a size about 1 meter
     Bounds bounds = model_bounds(model_object);
@@ -115,6 +119,8 @@ public class LoadModels : MonoBehaviour
     // Shift model to center.
     Vector3 shift = -scale * bounds.center;
     model_object.transform.position = initial_model_position() + shift;
+
+    return scale;
   }
 
   void scale_model(GameObject model_object, float scale)
@@ -192,8 +198,8 @@ public class LoadModels : MonoBehaviour
 	  Transform tc = m.model_object.transform;
 	  Transform t = mnew.model_object.transform;
 	  t.localScale = tc.localScale;
-	  t.rotation = tc.rotation;
-	  t.position = tc.position;
+	  t.localRotation = tc.localRotation;
+	  t.localPosition = tc.localPosition;
 	  open_models.remove_model(m);
 	}
       num_opened += 1;
@@ -213,22 +219,86 @@ public class LoadModels : MonoBehaviour
     return true;
   }
 
+  public Transform scene_transform()
+  {
+    return gameObject.transform;
+  }
+  
 }
 
 public class Models
 {
   public List<Model> models = new List<Model>();
+  public bool keep_aligned = false;
   public ModelUI model_ui = null;  // Called to update UI when model added or removed.
   
   public void add(Model model)
   {
     models.Add(model);
+    if (keep_aligned)
+      align_model(model);
     update_model_ui();
   }
 
+  void align_model(Model model)
+  {
+    Model align_to = align_to_model();
+    if (align_to == null)
+      return;
+
+    Transform a = align_to.model_object.transform;
+    Transform t = model.model_object.transform;
+    t.localPosition = a.localPosition;
+    t.localRotation = a.localRotation;
+    t.localScale = (align_to.scale / model.scale) * a.localScale;
+  }
+
+  public void restore_original_alignment(Model hold_still = null)
+  {
+    if (models.Count == 0)
+      return; 
+
+    if (hold_still == null)
+      hold_still = align_to_model();
+
+    Transform h = hold_still.model_object.transform;
+
+    foreach (Model m in models)
+    {
+      Transform t = m.model_object.transform;
+      t.localPosition = h.localPosition;
+      t.localRotation = h.localRotation;
+      t.localScale = (hold_still.scale / m.scale) * h.localScale;
+    }
+  }
+
+  private Model align_to_model()
+  {
+    // Model that other models are aligned when keep_aligned is true.
+    Model m = first_shown_model();
+    if (m == null && models.Count > 0)
+      m = models[0];
+    return m;
+  }
+
+  private Model first_shown_model()
+  {
+    foreach (Model m in models)
+    if (m.shown())
+      return m;
+    return null;
+  }
+  
   public int count()
   {
     return models.Count;
+  }
+
+  public GameObject parent()
+  {
+    if (models.Count == 0)
+      return null;
+    return models[0].model_object.transform.parent.gameObject;
   }
   
   public Model have_model(string path)
@@ -273,14 +343,21 @@ public class Model
   public byte [] gltf_data;
   public DateTime last_modified;
   public GameObject model_object;
+  public float scale;
 
-  public Model(string path, GameObject model_object)
+  public Model(string path, GameObject model_object, float scale)
   {
     this.path = path;
     this.last_modified = File.GetLastWriteTime(path);
     this.model_object = model_object;
+    this.scale = scale;		// Original GLTF data was scaled by this factor.
   }
 
+  public bool shown()
+  {
+    return model_object.activeSelf;
+  }
+    
   public bool has_gltf_data()
   {
     return gltf_data != null || File.Exists(path);

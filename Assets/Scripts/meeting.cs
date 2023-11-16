@@ -173,13 +173,15 @@ public class Meeting : MonoBehaviour
 {
     public LoadModels models;                     // Open models for adjusting positions.
     private Dictionary<string, MeetingModel> meeting_models;   // Map model identifier to MeetingModel
+    private ScenePosition scene_position;	  // Monitor scene position changes.
+    private bool last_keep_aligned;		  // Track keep aligned changes.
 
     public Transform left_wand, right_wand;       // For reporting positions to other participants.
     public Transform head;			  // For reporting head position to others.
     public ModelUI ui;				  // Use ui.settings
 
-    private string looksee_version = "11";	  // TODO: Need to switch to v10 since version 8 and older used string compare
-    private string minimum_compatible_version = "9";
+    private string looksee_version = "12";	  // TODO: Need to switch to v10 since version 8 and older used string compare
+    private string minimum_compatible_version = "12";
     private int port = 21213;
     private string prefix = "LookSeeMeeting";
     private int max_participants = 100;
@@ -195,6 +197,8 @@ public class Meeting : MonoBehaviour
     void Start()
     {
 	meeting_models = new Dictionary<string, MeetingModel>();
+	scene_position = new ScenePosition(models.scene_transform());
+	last_keep_aligned = models.open_models.keep_aligned;
     }
     
     void Update()
@@ -204,12 +208,20 @@ public class Meeting : MonoBehaviour
 	    
         frame += 1;
 
+	send_all_changes();
+
+	hide_inactive_wands();
+    }
+
+    private void send_all_changes()
+    {
+	send_new_scene_position();
+	send_keep_aligned();
         send_new_model_positions();
         send_model_shown_or_hidden();
         send_wand_positions();
 	send_newly_opened_models();
 	send_newly_closed_models();
-	hide_inactive_wands();
     }
 
     public void start_hosting()
@@ -482,6 +494,8 @@ public class Meeting : MonoBehaviour
 	try
 	{
 	    peers.Add(peer);
+	    send_scene_position(peer);
+	    send_keep_aligned(peer);
 	    send_all_meeting_models(peer);
 	    int message_count = await process_messages(peer);
 	    return message_count;
@@ -578,6 +592,10 @@ public class Meeting : MonoBehaviour
         byte message_type = msg[0];
         if (message_type == ModelPositionMessage.message_type)
             process_model_position_message(msg);
+        else if (message_type == ScenePositionMessage.message_type)
+            process_scene_position_message(msg);
+        else if (message_type == KeepAlignedMessage.message_type)
+            process_keep_aligned_message(msg);
         else if (message_type == ModelShownMessage.message_type)
             process_model_shown_message(msg);
         else if (message_type == WandPositionMessage.message_type)
@@ -609,6 +627,23 @@ public class Meeting : MonoBehaviour
 	   room_coords.from_room(ref m.position, ref m.rotation);
         MeetingModel mm = meeting_models[m.model_id];
 	mm.update_position(m.position, m.rotation, m.scale);
+    }
+
+    private void process_scene_position_message(byte [] msg)
+    {
+        ScenePositionMessage m = ScenePositionMessage.deserialize(msg);
+	if (room_coords != null)
+	   room_coords.from_room(ref m.position, ref m.rotation);
+	scene_position.update_position(m.position, m.rotation, m.scale);
+    }
+
+    private void process_keep_aligned_message(byte [] msg)
+    {
+        KeepAlignedMessage m = KeepAlignedMessage.deserialize(msg);
+	bool keep_aligned = m.keep_aligned;
+	models.open_models.keep_aligned = keep_aligned;
+	last_keep_aligned = keep_aligned;
+	ui.keep_aligned_toggle.isOn = keep_aligned;	// Update user interface
     }
 
     private void process_model_shown_message(byte [] msg)
@@ -657,6 +692,9 @@ public class Meeting : MonoBehaviour
     async private Task<string> process_open_model_message(byte [] msg)
     {
         OpenModelMessage m = OpenModelMessage.deserialize(msg);
+	if (room_coords != null)
+	  room_coords.from_room(ref m.position, ref m.rotation);
+
 	Model model = await models.load_gltf_bytes(m.gltf_bytes, m.model_name);
 	if (model == null)
 	  ui.show_error_message("Failed opening gltf for " + m.model_name +
@@ -722,6 +760,43 @@ public class Meeting : MonoBehaviour
         ErrorMessage m = ErrorMessage.deserialize(msg);
 	debug_log("Got error message " + m.error);
 	ui.show_error_message(m.error);
+    }
+
+    private void send_new_scene_position()
+    {
+      if (scene_position.position_changed())
+      {
+	scene_position.record_latest_position();
+        ScenePositionMessage message = new ScenePositionMessage(models.scene_transform());
+	if (room_coords != null)
+	  room_coords.to_room(ref message.position, ref message.rotation);
+        send_message_to_all(message.serialize());
+      }
+    }
+
+    private void send_scene_position(Peer peer)
+    {
+      ScenePositionMessage message = new ScenePositionMessage(models.scene_transform());
+      if (room_coords != null)
+        room_coords.to_room(ref message.position, ref message.rotation);
+      send_message(message.serialize(), peer);
+    }
+
+    private void send_keep_aligned()
+    {
+      bool keep_aligned = models.open_models.keep_aligned;
+      if (keep_aligned != last_keep_aligned)
+      {
+	last_keep_aligned = keep_aligned;
+        KeepAlignedMessage message = new KeepAlignedMessage(keep_aligned);
+        send_message_to_all(message.serialize());
+      }
+    }
+
+    private void send_keep_aligned(Peer peer)
+    {
+      KeepAlignedMessage message = new KeepAlignedMessage(last_keep_aligned);
+      send_message(message.serialize(), peer);
     }
 
     private int send_new_model_positions()
@@ -853,6 +928,8 @@ public class Meeting : MonoBehaviour
 	    MeetingModel mm = new MeetingModel(m);
 	    meeting_models.Add(mm.model_id, mm);
             OpenModelMessage msg = new OpenModelMessage(mm);
+	    if (room_coords != null)
+	      room_coords.to_room(ref msg.position, ref msg.rotation);
 	    send_message_to_all(msg.serialize());
 
 	/*
@@ -884,6 +961,8 @@ public class Meeting : MonoBehaviour
 	  if (!mm.model_closed() && mm.model.has_gltf_data())
 	  {
 	    OpenModelMessage msg = new OpenModelMessage(mm);
+	    if (room_coords != null)
+	      room_coords.to_room(ref msg.position, ref msg.rotation);
 	    send_message(msg.serialize(), peer);
 	  }
     }
@@ -952,6 +1031,96 @@ public class ModelPositionMessage
     }
 }
 
+[Serializable]
+public class ScenePositionMessage
+{
+    public const int message_type = 9;
+    public Vector3 position;
+    public Quaternion rotation;
+    public float scale;
+
+    public ScenePositionMessage(Transform transform)
+    {
+        this.position = transform.position;
+        this.rotation = transform.rotation;
+        this.scale = transform.localScale.x;
+    }
+
+    public byte [] serialize()
+    {
+	return Messages.message_bytes(message_type, JsonUtility.ToJson(this));
+    }
+
+    static public ScenePositionMessage deserialize(byte [] msg)
+    {
+        string json = Encoding.UTF8.GetString(msg, 1, msg.Length-1);
+        return JsonUtility.FromJson<ScenePositionMessage>(json);
+    }
+}
+
+class ScenePosition
+{
+  // Keep track of changes of root model of scene.
+  private Transform scene_transform;
+  private Vector3 position;
+  private Quaternion rotation;
+  private float scale;
+  
+  public ScenePosition(Transform transform)
+  {
+    scene_transform = transform;
+    position = transform.localPosition;
+    rotation = transform.localRotation;
+    scale = transform.localScale.x;
+  }
+
+  public void update_position(Vector3 position, Quaternion rotation, float scale)
+  {
+    scene_transform.position = position;
+    scene_transform.rotation = rotation;
+    scene_transform.localScale = scale * Vector3.one;
+    record_latest_position();
+  }
+
+  public bool position_changed()
+  {
+    Transform t = scene_transform;
+    bool same = (t.localPosition == position && t.localRotation == rotation && t.localScale.x == scale);
+    return !same;
+  }
+
+  public void record_latest_position()
+  {
+    Transform t = scene_transform;
+    position = t.localPosition;
+    rotation = t.localRotation;
+    scale = t.localScale.x;
+  }
+}
+
+[Serializable]
+public class KeepAlignedMessage
+{
+    public const int message_type = 10;
+    public bool keep_aligned;
+
+    public KeepAlignedMessage(bool keep_aligned)
+    {
+        this.keep_aligned = keep_aligned;
+    }
+
+    public byte [] serialize()
+    {
+	return Messages.message_bytes(message_type, JsonUtility.ToJson(this));
+    }
+
+    static public KeepAlignedMessage deserialize(byte [] msg)
+    {
+        string json = Encoding.UTF8.GetString(msg, 1, msg.Length-1);
+        return JsonUtility.FromJson<KeepAlignedMessage>(json);
+    }
+}
+
 class Messages
 {
     static public byte [] message_bytes(byte message_type, string json)
@@ -1008,7 +1177,7 @@ public class MeetingModel
     public Model model;
     public string model_id;
     public bool shown;
-    public Vector3 position;	// Last meeting position of model.
+    public Vector3 position;	// Last meeting local position of model.
     public Quaternion rotation;
     public Vector3 scale;
 
@@ -1030,7 +1199,7 @@ public class MeetingModel
 	if (model_closed())
 	    return false;
 	Transform t = model.model_object.transform;
-        bool same = (t.position == position && t.rotation == rotation && t.localScale == scale);
+        bool same = (t.localPosition == position && t.localRotation == rotation && t.localScale == scale);
         return !same;
     }
 
@@ -1068,8 +1237,8 @@ public class MeetingModel
        if (model_closed())
          return;
        Transform t = model.model_object.transform;
-       position = t.position;
-       rotation = t.rotation;
+       position = t.localPosition;
+       rotation = t.localRotation;
        scale = t.localScale;
     }
 

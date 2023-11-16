@@ -4,6 +4,8 @@ class ModelUtilities
 {
   public static Bounds model_bounds(GameObject model)
   {
+    // This gives the bounds in world space which will include any
+    // transforms the parent of model applies.
     Bounds bounds = new Bounds (Vector3.zero, Vector3.zero);
     Renderer[] renderers = model.GetComponentsInChildren<Renderer> ();
     foreach (Renderer renderer in renderers)

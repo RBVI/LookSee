@@ -66,7 +66,7 @@ public class PositionModel : MonoBehaviour
       // If both wand buttons pressed and dragging same model, then scale.
       return (left_wand_mover.button_pressed &&
               right_wand_mover.button_pressed &&
-              left_wand_mover.drag_model == right_wand_mover.drag_model);
+              left_wand_mover.drag_transform == right_wand_mover.drag_transform);
     }
 
     // Scaling model using controll thumbstick.
@@ -123,7 +123,7 @@ public class PositionModel : MonoBehaviour
 class WandModelMover
 {
     // Moving model with each hand controller
-    public Model drag_model;
+    public Transform drag_transform;
     public bool button_pressed = false;
     public bool have_last_pose = false;
     public PoseState last_wand_pose;
@@ -140,19 +140,31 @@ class WandModelMover
 
     public bool pick_model(Models models, Wand wand)
     {
-      drag_model = closest_model(models, wand.transform.position, wand.transform.up);
-      return (drag_model != null);
+      if (models.keep_aligned)
+      {
+        GameObject p = models.parent();
+	if (p != null)
+	  drag_transform = p.transform;
+      }
+      else
+      {
+        Model m = closest_model(models, wand.transform.position, wand.transform.up);
+	if (m != null)
+	  drag_transform = m.model_object.transform;
+      }
+
+      return (drag_transform != null);
     }
 
     public void move(PoseState pose)
     {
-      if (!button_pressed || drag_model == null)
+      if (!button_pressed || drag_transform == null)
         return;
 
       if (have_last_pose)
       {
         Vector3 scale = Vector3.one;
-	Transform t = drag_model.model_object.transform;
+	Transform t = drag_transform;
     	Matrix4x4 new_model_transform = (
 	  Matrix4x4.TRS(pose.position, pose.rotation, scale)
 	   * Matrix4x4.TRS(last_wand_pose.position, last_wand_pose.rotation, scale).inverse
@@ -166,7 +178,7 @@ class WandModelMover
 
     public void pinch_scale(PoseState pose, WandModelMover other_wand_mover)
     {
-      if (!button_pressed || drag_model == null)
+      if (!button_pressed || drag_transform == null)
         return;
 
       if (have_last_pose && other_wand_mover.have_last_pose)
@@ -188,10 +200,10 @@ class WandModelMover
     // Scale about the model center.
     public void scale_model(float factor)
     {
-      if (drag_model == null)
+      if (drag_transform == null)
         return;
-      Vector3 c = model_center(drag_model.model_object);
-      Transform t = drag_model.model_object.transform;
+      Vector3 c = model_center(drag_transform.gameObject);
+      Transform t = drag_transform;
       t.position = c + factor * (t.position - c);
       t.localScale *= factor;
     }
