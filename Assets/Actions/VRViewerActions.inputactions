@@ -24,6 +24,15 @@
                     "initialStateCheck": true
                 },
                 {
+                    "name": "NextModel",
+                    "type": "Value",
+                    "id": "d38a95a7-1d8c-4a1f-93a3-70560686e7cf",
+                    "expectedControlType": "Vector2",
+                    "processors": "",
+                    "interactions": "",
+                    "initialStateCheck": true
+                },
+                {
                     "name": "HideOrShowTable",
                     "type": "Button",
                     "id": "89abce87-b32b-44a8-af05-52a866eeaac3",
@@ -107,7 +116,7 @@
                 },
                 {
                     "name": "",
-                    "id": "3e63041c-11cd-4bec-8ddf-836257416cd9",
+                    "id": "f95b8d0c-f49c-423d-9dec-a66f912f42fd",
                     "path": "<XRController>{LeftHand}/thumbstick",
                     "interactions": "",
                     "processors": "",
@@ -179,6 +188,28 @@
                     "processors": "",
                     "groups": "XR",
                     "action": "AlignMeetingWands",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                },
+                {
+                    "name": "",
+                    "id": "844ac1f0-c944-4ef0-af50-c45e99b220f5",
+                    "path": "<XRController>{LeftHand}/thumbstick",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "XR",
+                    "action": "NextModel",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                },
+                {
+                    "name": "",
+                    "id": "0c8bc76b-4080-45a7-a307-b50f14cb5169",
+                    "path": "<XRController>{RightHand}/thumbstick",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "XR",
+                    "action": "NextModel",
                     "isComposite": false,
                     "isPartOfComposite": false
                 }

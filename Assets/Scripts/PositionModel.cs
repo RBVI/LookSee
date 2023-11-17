@@ -69,7 +69,7 @@ public class PositionModel : MonoBehaviour
               left_wand_mover.drag_transform == right_wand_mover.drag_transform);
     }
 
-    // Scaling model using controll thumbstick.
+    // Scaling model using controller thumbstick.
     public void ScaleModel(InputAction.CallbackContext context)
     {
       Wand wand;
@@ -79,11 +79,14 @@ public class PositionModel : MonoBehaviour
       if (wand_mover.pick_model(models.open_models, wand))
       {
         Vector2 stick = context.action.ReadValue<Vector2>();
-        float factor = Mathf.Exp(-stick.y / 100.0f);
-        wand_mover.scale_model(factor);
+	if (Mathf.Abs(stick.y) > Mathf.Abs(stick.x))
+	{
+          float factor = Mathf.Exp(-stick.y / 100.0f);
+          wand_mover.scale_model(factor);
+	}
       }
     }
-
+    
     bool which_wand(InputAction.CallbackContext context,
 	            out Wand wand,
                     out WandModelMover wand_mover,

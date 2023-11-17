@@ -357,6 +357,16 @@ public class Model
   {
     return model_object.activeSelf;
   }
+
+  public void show()
+  {
+    model_object.SetActive(true);
+  }
+
+  public void hide()
+  {
+    model_object.SetActive(false);
+  }
     
   public bool has_gltf_data()
   {

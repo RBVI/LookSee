@@ -39,7 +39,8 @@ public class ModelUI : MonoBehaviour
     public float initial_distance = 0.8f;	// How far to place UI in front of eyes, meters.
     private bool initial_position_set = false;
     public LookSeeSettings settings = new LookSeeSettings();
-
+    private bool show_next_ready = false;
+    
     void Start()
     {
       settings.load();
@@ -313,7 +314,71 @@ public class ModelUI : MonoBehaviour
   {
       model.model_object.SetActive(show);
   }
-  
+
+  // Show next using controller thumbstick.
+  public void NextModel(InputAction.CallbackContext context)
+  {
+    if (!context.performed)
+      return;
+
+    Vector2 stick = context.action.ReadValue<Vector2>();
+    float x = Math.Abs(stick.x), y = Math.Abs(stick.y);
+    if (show_next_ready && x > y && x > 0.8)
+    {
+      if (stick.x > 0)
+	  show_next_model();
+	else
+        show_previous_model();
+	show_next_ready = false;
+    }
+    if (x < .6)
+      show_next_ready = true;
+  }
+
+  void show_next_model()
+  {
+    List<Model> modlist = load_models.open_models.models;
+    int n = modlist.Count, next = 0;
+    if (n == 0)
+      return;
+    for (int i = 0 ; i < n ; ++i)
+      if (modlist[i].shown())
+	  next = i+1;
+    if (next == n)
+      next = 0;
+    foreach (Model m in modlist)
+      if (m.shown())
+	  m.hide();
+    modlist[next].show();
+    if (models_pane_shown())
+      update_models_pane();
+  }
+
+  void show_previous_model()
+  {
+    List<Model> modlist = load_models.open_models.models;
+    int n = modlist.Count;
+    if (n == 0)
+      return;
+    int prev = n-1;
+    for (int i = n-1 ; i >= 0 ; --i)
+      if (modlist[i].shown())
+	  prev = i-1;
+    if (prev < 0)
+      prev = n-1;
+    foreach (Model m in modlist)
+      if (m.shown())
+	  m.hide();
+    modlist[prev].show();
+    if (models_pane_shown())
+      update_models_pane();
+  }
+
+  bool models_pane_shown()
+  {
+    return gameObject.activeSelf && models_pane.activeSelf;
+  }
+
   public void start_meeting(string button_name)
   {
     meeting.start_hosting();
