@@ -63,22 +63,32 @@ public class ModelUI : MonoBehaviour
     {
       if (!context.performed)
         return;
-      bool show = !gameObject.activeSelf;
+      bool show = !ui_shown();
       if (show)
       {
         update_ui_controls();
 	position_ui_panel(context.control.device);
       }
-      gameObject.SetActive(show);
+      show_ui(show);
     }
 
+    public bool ui_shown()
+    {
+      return gameObject.activeSelf;
+    }
+
+    public void show_ui(bool show)
+    {
+      gameObject.SetActive(show);
+    }
+    
     public void update_ui_controls()
     {
       update_models_pane();
       update_files_pane();
     }
 
-    private void update_models_pane()
+    public void update_models_pane()
     {
       // Destroy current buttons.
       foreach (Transform child in models_pane.transform)
@@ -182,8 +192,14 @@ public class ModelUI : MonoBehaviour
     if (wand == null)
       return;
     Vector3 tip = wand.tip_position();
-    transform.position = tip;
-    Vector3 look = tip - headset.eye_position();
+    position_ui_panel_at_point(tip);
+  }
+
+  public void position_ui_panel_at_point(Vector3 position, float back_up = 0f)
+  {
+    Vector3 eye_position = headset.eye_position();
+    transform.position = (back_up == 0 ? position : position + back_up * (position-eye_position).normalized);
+    Vector3 look = position - eye_position;
     look.y = 0;
     transform.rotation = Quaternion.FromToRotation(new Vector3(0,0,1), look);
   }
@@ -374,7 +390,7 @@ public class ModelUI : MonoBehaviour
       update_models_pane();
   }
 
-  bool models_pane_shown()
+  public bool models_pane_shown()
   {
     return gameObject.activeSelf && models_pane.activeSelf;
   }

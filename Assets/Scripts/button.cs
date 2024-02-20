@@ -18,6 +18,7 @@ public class ButtonSelect : MonoBehaviour
     public Func<Task> async_action;		// Async action to perform on button press.
     public InputActionAsset input_actions;	// To get VR controller button events.
     public UnityEvent<string> event_action;	// Settable in Unity editor.
+    bool finger_approached = false;		// Avoid hand double touches.
     
     void Start()
     {
@@ -37,13 +38,24 @@ public class ButtonSelect : MonoBehaviour
 
     void OnTriggerEnter(Collider collider)
     {
+      if (EventSystem.current.currentSelectedGameObject == gameObject)
+        return; // Don't activate button twice.
+	
       if (collider.tag == "Wand")
         EventSystem.current.SetSelectedGameObject(gameObject);
+      else if (collider.tag == "FingerApproach")
+        finger_approached = true;
+      else if (collider.tag == "FingerTip" && finger_approached)
+      {
+        EventSystem.current.SetSelectedGameObject(gameObject);
+        finger_approached = false;
+        press();
+      }
     }
 
     void OnTriggerExit(Collider collider)
     {
-      if (collider.tag == "Wand")
+      if (collider.tag == "Wand" || collider.tag == "FingerTip")
         EventSystem.current.SetSelectedGameObject(null);
     }
 
@@ -57,7 +69,12 @@ public class ButtonSelect : MonoBehaviour
 
       if (EventSystem.current.currentSelectedGameObject != gameObject)
         return;
-      
+
+      await press();
+    }
+
+    async Task<bool> press()
+    {
       string button_name = gameObject.name;
 //      GameObject.Find("DebugText").GetComponentInChildren<TextMeshProUGUI>().text = "Button name " + gameObject.name;
       if (event_action != null)
@@ -74,6 +91,7 @@ public class ButtonSelect : MonoBehaviour
         bool enable = !t.isOn;
         t.isOn = enable;
       }
+      return true;
     }
 }
 

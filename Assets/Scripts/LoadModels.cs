@@ -332,8 +332,8 @@ public class Models
 
   void update_model_ui()
   {
-    if (model_ui != null)
-      model_ui.update_ui_controls();
+    if (model_ui != null && model_ui.models_pane_shown())
+      model_ui.update_models_pane();
   }
 }
 
