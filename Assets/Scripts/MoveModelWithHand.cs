@@ -6,6 +6,7 @@ public class MoveModelWithHand : MonoBehaviour
     public LoadModels models;
     public Headset headset;
     public OVRHand left_hand, right_hand;
+    public Meeting meeting;  // Used for placing meeting coordinate alignment markers.
 
     ModelMover left_hand_mover = new ModelMover();
     ModelMover right_hand_mover = new ModelMover();

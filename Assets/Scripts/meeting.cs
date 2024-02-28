@@ -265,13 +265,30 @@ public class Meeting : MonoBehaviour
 	}
     }
 
+    public bool setting_room_coordinates()
+    {
+      return set_room_coords != null;
+    }
+      
     public void DropCoordinateMarker(InputAction.CallbackContext context)
+    {
+        if (!context.performed)
+          return;
+
+        if (set_room_coords == null)
+	  return;
+
+	int marker_number = (context.control.device.usages.Contains(UnityEngine.InputSystem.CommonUsages.RightHand) ? 1 : 2);
+	Vector3 position = set_room_coords.wand_marker_position(marker_number);
+	drop_coordinate_marker(marker_number, position);
+    }
+
+    public void drop_coordinate_marker(int marker_number, Vector3 position)
     {
         if (set_room_coords == null)
 	  return;
 
-        if (!set_room_coords.drop_marker(context))
-	  return;
+        set_room_coords.place_marker(marker_number, position);
 
 	Vector3 x1 = Vector3.zero, x2 = Vector3.zero;
 	if (!set_room_coords.marker_positions(ref x1, ref x2))
@@ -1462,27 +1479,21 @@ class SetRoomCoordinates
         GameObject.Destroy(placed_marker2);
     }
 
-    public bool drop_marker(InputAction.CallbackContext context)
+    public Vector3 wand_marker_position(int marker_number)
     {
-      if (!context.performed)
-        return false;
-      if (context.control.device.usages.Contains(UnityEngine.InputSystem.CommonUsages.RightHand))
-        place_marker(1, wand_marker1.transform.position);
-      else
-        place_marker(2, wand_marker2.transform.position);
-      return true;
+      return (marker_number == 1 ? wand_marker1.transform.position : wand_marker2.transform.position);
     }
 
-    void place_marker(int n, Vector3 position)
+    public void place_marker(int marker_number, Vector3 position)
     {
-      if (n == 1)
+      if (marker_number == 1)
       {
         if (placed_marker1 == null)
 	  placed_marker1 = UnityEngine.Object.Instantiate(coord_marker1_prefab, position, Quaternion.identity, marker_parent);
 	else
 	  placed_marker1.transform.position = position;
       }
-      else if (n == 2)
+      else if (marker_number == 2)
       {
         if (placed_marker2 == null)
 	  placed_marker2 = UnityEngine.Object.Instantiate(coord_marker2_prefab, position, Quaternion.identity, marker_parent);
