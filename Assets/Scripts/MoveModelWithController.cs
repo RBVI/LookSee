@@ -39,7 +39,10 @@ public class MoveModelWithController : MonoBehaviour
         return;
 
       Vector3 pick_direction = wand.transform.up, pick_origin = wand.transform.position;
-      wand_mover.grip_model(pressed, pick_direction, pick_origin, models.open_models);
+      if (pressed)
+	  wand_mover.grip_model(pick_direction, pick_origin, models.open_models);
+      else
+	  wand_mover.ungrip_model();
 
 //      debug.GetComponentInChildren<TextMeshProUGUI>().text = "Grab " + context.action.name + " " + context.action.phase;
 //     Debug.Log("Grab " + context.action.name + " " + context.action.phase + " " + grab);

@@ -13,9 +13,6 @@
 # Emacs backup files
 *~
 
-# Oculus Interaction version 49.0
-/Assets/Oculus/
-
 # MemoryCaptures can get excessive in size.
 # They also could contain extremely sensitive data
 /[Mm]emoryCaptures/

@@ -13,16 +13,18 @@ public class ModelMover
     public bool have_last_pose = false;
     public PoseState last_hand_pose;
 
-    public void grip_model(bool grip, Vector3 pick_direction, Vector3 pick_origin, Models models)
+    public void grip_model(Vector3 pick_direction, Vector3 pick_origin, Models models)
     {
-      if (!gripped && grip)
-      {
-        pick_model(models, pick_direction, pick_origin);
-        have_last_pose = false;
-      }
-     gripped = grip;
+      pick_model(models, pick_direction, pick_origin);
+      have_last_pose = false;
+      gripped = true;
     }
 
+    public void ungrip_model()
+    {
+      gripped = false;
+    }
+	
     public bool pick_model(Models models, Vector3 pick_direction, Vector3 pick_origin)
     {
       if (models.keep_aligned)

@@ -298,9 +298,9 @@ GameObject:
   - component: {fileID: 74569120}
   - component: {fileID: 74569123}
   - component: {fileID: 74569124}
-  - component: {fileID: 74569125}
   - component: {fileID: 74569126}
   - component: {fileID: 74569127}
+  - component: {fileID: 74569128}
   m_Layer: 0
   m_Name: Controls
   m_TagString: Untagged
@@ -604,25 +604,6 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   eye_center: {fileID: 1751244267}
---- !u!114 &74569125
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 74569115}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 14bfdeb1f8a634b52af98d191fd789f9, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  model_ui: {fileID: 136512707}
-  left_hand_skeleton: {fileID: 1745337716}
-  right_hand_skeleton: {fileID: 1841111990}
-  left_finger_tip: {fileID: 1445919119}
-  left_finger_approach: {fileID: 908262914}
-  right_finger_tip: {fileID: 372041766}
-  right_finger_approach: {fileID: 1830989818}
 --- !u!114 &74569126
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -652,8 +633,24 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   models: {fileID: 583134609}
   headset: {fileID: 74569124}
-  left_hand: {fileID: 1745337711}
-  right_hand: {fileID: 1445919121}
+  left_hand: {fileID: 1745337721}
+  right_hand: {fileID: 1841111995}
+  meeting: {fileID: 583134612}
+--- !u!114 &74569128
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 74569115}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c0b598689347244e0944031581f521ce, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  model_ui: {fileID: 136512707}
+  hand: {fileID: 1745337721}
+  ui_offset: 0.2
 --- !u!114 &88557887
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1378,7 +1375,7 @@ GameObject:
   - component: {fileID: 200574500}
   - component: {fileID: 200574505}
   m_Layer: 0
-  m_Name: LeftHand
+  m_Name: WandLeftHand
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -2464,6 +2461,11 @@ GameObject:
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
   m_IsActive: 1
+--- !u!1 &374583209 stripped
+GameObject:
+  m_CorrespondingSourceObject: {fileID: 1870938896605422, guid: 835e735ca71bf78459fb2cababd74112, type: 3}
+  m_PrefabInstance: {fileID: 538172858}
+  m_PrefabAsset: {fileID: 0}
 --- !u!1 &375566302
 GameObject:
   m_ObjectHideFlags: 0
@@ -3611,7 +3613,10 @@ PrefabInstance:
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects: []
-    m_AddedComponents: []
+    m_AddedComponents:
+    - targetCorrespondingSourceObject: {fileID: 1870938896605422, guid: 835e735ca71bf78459fb2cababd74112, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 1745337721}
   m_SourcePrefab: {fileID: 100100000, guid: 835e735ca71bf78459fb2cababd74112, type: 3}
 --- !u!1 &561149292 stripped
 GameObject:
@@ -10007,7 +10012,10 @@ PrefabInstance:
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects: []
-    m_AddedComponents: []
+    m_AddedComponents:
+    - targetCorrespondingSourceObject: {fileID: 1870938896605422, guid: 835e735ca71bf78459fb2cababd74112, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 1841111995}
   m_SourcePrefab: {fileID: 100100000, guid: 835e735ca71bf78459fb2cababd74112, type: 3}
 --- !u!1001 &1390039255
 PrefabInstance:
@@ -10338,7 +10346,7 @@ MonoBehaviour:
   m_CorrespondingSourceObject: {fileID: 114428879332287356, guid: 835e735ca71bf78459fb2cababd74112, type: 3}
   m_PrefabInstance: {fileID: 1376916851}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 0}
+  m_GameObject: {fileID: 1841111985}
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: cb7623a8f0b49cf4dbaa40aea4d4be64, type: 3}
@@ -12028,23 +12036,28 @@ MonoBehaviour:
   m_CorrespondingSourceObject: {fileID: 114428879332287356, guid: 835e735ca71bf78459fb2cababd74112, type: 3}
   m_PrefabInstance: {fileID: 538172858}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 0}
+  m_GameObject: {fileID: 374583209}
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: cb7623a8f0b49cf4dbaa40aea4d4be64, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
---- !u!114 &1745337716 stripped
+--- !u!114 &1745337721
 MonoBehaviour:
-  m_CorrespondingSourceObject: {fileID: 114567484643301796, guid: 835e735ca71bf78459fb2cababd74112, type: 3}
-  m_PrefabInstance: {fileID: 538172858}
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 0}
+  m_GameObject: {fileID: 374583209}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 2609c54f376cffc4da1ab9401cc1a36f, type: 3}
+  m_Script: {fileID: 11500000, guid: c6d14802890ec4a85849a638f50f9b01, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  hand: {fileID: 1745337711}
+  finger_tip: {fileID: 1445919119}
+  finger_approach: {fileID: 908262914}
+  button_push_depth: 0.015
 --- !u!1001 &1748921523
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -13238,17 +13251,27 @@ RectTransform:
   m_AnchoredPosition: {x: 30, y: -170}
   m_SizeDelta: {x: 50, y: 50}
   m_Pivot: {x: 0.5, y: 0.5}
---- !u!114 &1841111990 stripped
-MonoBehaviour:
-  m_CorrespondingSourceObject: {fileID: 114567484643301796, guid: 835e735ca71bf78459fb2cababd74112, type: 3}
+--- !u!1 &1841111985 stripped
+GameObject:
+  m_CorrespondingSourceObject: {fileID: 1870938896605422, guid: 835e735ca71bf78459fb2cababd74112, type: 3}
   m_PrefabInstance: {fileID: 1376916851}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 0}
+--- !u!114 &1841111995
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1841111985}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 2609c54f376cffc4da1ab9401cc1a36f, type: 3}
+  m_Script: {fileID: 11500000, guid: c6d14802890ec4a85849a638f50f9b01, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  hand: {fileID: 1445919121}
+  finger_tip: {fileID: 372041766}
+  finger_approach: {fileID: 1830989818}
+  button_push_depth: 0.015
 --- !u!1 &1855947411
 GameObject:
   m_ObjectHideFlags: 0
@@ -13677,7 +13700,7 @@ GameObject:
   - component: {fileID: 1862859525}
   - component: {fileID: 1862859526}
   m_Layer: 0
-  m_Name: RightHand
+  m_Name: WandRightHand
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
