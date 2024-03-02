@@ -70,10 +70,16 @@ public class Hand : MonoBehaviour
 	return pinch;
     }
     
-    public Transform pointer_pose()
+    public Transform hand_pose()
     {
+	/*
 	if (hand.IsPointerPoseValid)
 	    return hand.PointerPose;
+	*/
+	// Use skeleton transform since hand.PointerPose seems to be updated only ever few frames
+	// in Quest runtime v62.
+	if (hand_skeleton.IsDataValid && hand_skeleton.IsValidBone(OVRSkeleton.BoneId.Hand_WristRoot))
+	    return hand_skeleton.Bones[(int)OVRSkeleton.BoneId.Hand_WristRoot].Transform;
 	return null;
     }
 }

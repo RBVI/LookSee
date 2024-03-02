@@ -27,7 +27,7 @@ public class MoveModelWithHand : MonoBehaviour
 
     bool move_model_with_hand(Hand hand, ModelMover hand_mover, Hand other_hand, ModelMover other_hand_mover)
     {
-      Transform hand_transform = hand.pointer_pose();
+      Transform hand_transform = hand.hand_pose();
       if (hand_transform == null)
 	  return false;
 
