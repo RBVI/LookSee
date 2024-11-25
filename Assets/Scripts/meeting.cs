@@ -180,7 +180,7 @@ public class Meeting : MonoBehaviour
     public Transform head;			  // For reporting head position to others.
     public ModelUI ui;				  // Use ui.settings
 
-    private string looksee_version = "12";	  // TODO: Need to switch to v10 since version 8 and older used string compare
+    private string looksee_version = "17";	  // TODO: Need to switch to v10 since version 8 and older used string compare
     private string minimum_compatible_version = "12";
     private int port = 21213;
     private string prefix = "LookSeeMeeting";
